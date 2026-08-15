@@ -45,13 +45,17 @@ Future<void> main() async {
   await game.init();
   _installDebugHooks(game);
 
+  final themes = ThemeController.instance;
+
   runApp(
-    MaterialApp(
-      title: 'Boggle',
-      debugShowCheckedModeBanner: false,
-      theme: buildAdwaitaTheme(),
-      themeMode: ThemeMode.dark,
-      home: HomeScreen(game: game),
+    ListenableBuilder(
+      listenable: themes,
+      builder: (context, _) => MaterialApp(
+        title: 'Boggle',
+        debugShowCheckedModeBanner: false,
+        theme: themes.themeData,
+        home: HomeScreen(game: game),
+      ),
     ),
   );
 }

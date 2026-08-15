@@ -53,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final g = widget.game;
+    final theme = Theme.of(context);
     return AnimatedBuilder(
       animation: g,
       builder: (context, _) {
@@ -63,8 +64,56 @@ class _HomeScreenState extends State<HomeScreen> {
           Phase.play => PlayScreen(game: g),
           Phase.results => ResultsScreen(game: g),
         };
-        return Scaffold(body: SafeArea(child: screen));
+        return Scaffold(
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.30),
+                  theme.scaffoldBackgroundColor,
+                ],
+                stops: const [0.0, 0.35],
+              ),
+            ),
+            child: SafeArea(child: screen),
+          ),
+        );
       },
+    );
+  }
+}
+
+// -------------------------------------------------------------- theme menu
+
+/// Quick theme switcher: Adwaita / Yaru x dark / light, persisted.
+class ThemeMenu extends StatelessWidget {
+  const ThemeMenu({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themes = ThemeController.instance;
+    return PopupMenuButton<BoggleThemeMode>(
+      tooltip: 'Theme',
+      icon: const Icon(Icons.palette_outlined),
+      onSelected: themes.setMode,
+      itemBuilder: (context) => [
+        for (final mode in BoggleThemeMode.values)
+          PopupMenuItem(
+            value: mode,
+            child: Row(
+              children: [
+                Icon(
+                  themes.mode == mode ? Icons.radio_button_checked : Icons.radio_button_off,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(mode.label),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -121,12 +170,40 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Dice mark + title
+                  Center(
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            theme.colorScheme.primary,
+                            theme.colorScheme.primary.withValues(alpha: 0.65),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'B',
+                          style: theme.textTheme.displaySmall?.copyWith(
+                            color: theme.colorScheme.onPrimary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Text(
                     'BOGGLE',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.displaySmall?.copyWith(
                       color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 6,
                     ),
                   ),
@@ -189,6 +266,48 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall,
                   ),
+                  const SizedBox(height: 18),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Text(
+                    'APPEARANCE',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Adwaita')),
+                        ButtonSegment(value: true, label: Text('Yaru')),
+                      ],
+                      selected: {ThemeController.instance.mode.isYaru},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (sel) => ThemeController.instance.setMode(
+                        sel.first ? BoggleThemeMode.yaruDark : BoggleThemeMode.adwaitaDark,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Center(
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Dark')),
+                        ButtonSegment(value: true, label: Text('Light')),
+                      ],
+                      selected: {ThemeController.instance.mode.isLight},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (sel) => ThemeController.instance.setMode(
+                        sel.first
+                            ? (ThemeController.instance.mode.isYaru
+                                ? BoggleThemeMode.yaruLight
+                                : BoggleThemeMode.adwaitaLight)
+                            : (ThemeController.instance.mode.isYaru
+                                ? BoggleThemeMode.yaruDark
+                                : BoggleThemeMode.adwaitaDark),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -241,13 +360,20 @@ class RoomScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'ROOM  ${g.room}',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'ROOM  ${g.room}',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const ThemeMenu(),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -343,20 +469,29 @@ class PlayScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text('ROOM ${g.room} · ROUND ${g.round}',
-                  style: theme.textTheme.titleMedium),
-              const Spacer(),
-              Text(
-                _fmt(remaining),
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: FontWeight.bold,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(kAdwaitaCardRadius),
+            ),
+            child: Row(
+              children: [
+                Text('ROOM ${g.room} · ROUND ${g.round}',
+                    style: theme.textTheme.titleMedium),
+                const Spacer(),
+                Text(
+                  _fmt(remaining),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 4),
+                const ThemeMenu(),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           ClipRRect(
@@ -597,13 +732,24 @@ class ResultsScreen extends StatelessWidget {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SizedBox(
-                                width: 32,
-                                child: Text(
-                                  '${i + 1}.',
-                                  style: theme.textTheme.titleMedium,
+                              if (i < 3)
+                                Icon(
+                                  Icons.emoji_events,
+                                  size: 22,
+                                  color: const [
+                                    AdwaitaColors.yellow5,
+                                    AdwaitaColors.light4,
+                                    AdwaitaColors.orange3,
+                                  ][i],
+                                )
+                              else
+                                SizedBox(
+                                  width: 32,
+                                  child: Text(
+                                    '${i + 1}.',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
                                 ),
-                              ),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,

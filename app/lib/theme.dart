@@ -1,12 +1,15 @@
-/// Adwaita theme - GNOME's design system (libadwaita), built by hand for
-/// close alignment:
-///   https://gitlab.gnome.org/GNOME/libadwaita/-/blob/main/src/stylesheet/_defaults.scss
+/// Themes: hand-built Adwaita (GNOME) plus the native Yaru (Ubuntu) themes,
+/// with an easy runtime toggle persisted to localStorage.
 ///
-/// Palette values are the libadwaita defaults (dark: window #242424,
-/// headerbar #303030, card #383838, accent blue #3584e4).
+/// Adwaita palette values are the libadwaita defaults:
+///   https://gitlab.gnome.org/GNOME/libadwaita/-/blob/main/src/stylesheet/_defaults.scss
 library;
 
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+
 import 'package:flutter/material.dart';
+import 'package:yaru/yaru.dart';
 
 /// The libadwaita accent scales (dark variants, used as-is).
 class AdwaitaColors {
@@ -39,13 +42,14 @@ class AdwaitaColors {
   static const Color dark2 = Color(0xFF5E5C64);
   static const Color dark3 = Color(0xFF3D3846);
 
-  /// libadwaita dark window background.
+  // libadwaita light defaults
+  static const Color lightWindow = Color(0xFFFAFAFA);
+  static const Color lightHeaderbar = Color(0xFFEBEBEB);
+  static const Color lightText = Color(0xFF2E3436);
+
+  // libadwaita dark defaults
   static const Color window = Color(0xFF242424);
-
-  /// libadwaita dark header bar background.
   static const Color headerbar = Color(0xFF303030);
-
-  /// libadwaita dark card background.
   static const Color card = Color(0xFF383838);
 }
 
@@ -53,34 +57,122 @@ class AdwaitaColors {
 const double kAdwaitaCardRadius = 12;
 const double kAdwaitaEntryRadius = 8;
 
-/// Build the Adwaita dark ThemeData.
-ThemeData buildAdwaitaTheme() {
+/// The four built-in looks.
+enum BoggleThemeMode { adwaitaDark, adwaitaLight, yaruDark, yaruLight }
+
+extension BoggleThemeModeX on BoggleThemeMode {
+  String get label => switch (this) {
+        BoggleThemeMode.adwaitaDark => 'Adwaita Dark',
+        BoggleThemeMode.adwaitaLight => 'Adwaita Light',
+        BoggleThemeMode.yaruDark => 'Yaru Dark',
+        BoggleThemeMode.yaruLight => 'Yaru Light',
+      };
+  bool get isYaru => this == BoggleThemeMode.yaruDark || this == BoggleThemeMode.yaruLight;
+  bool get isLight => this == BoggleThemeMode.adwaitaLight || this == BoggleThemeMode.yaruLight;
+}
+
+/// Runtime theme switcher with localStorage persistence.
+class ThemeController extends ChangeNotifier {
+  ThemeController._() : _mode = _load();
+
+  static final ThemeController instance = ThemeController._();
+
+  static const _storageKey = 'boggle.themeMode';
+
+  BoggleThemeMode _mode;
+
+  BoggleThemeMode get mode => _mode;
+
+  ThemeData get themeData => switch (_mode) {
+        BoggleThemeMode.adwaitaDark => buildAdwaitaTheme(Brightness.dark),
+        BoggleThemeMode.adwaitaLight => buildAdwaitaTheme(Brightness.light),
+        BoggleThemeMode.yaruDark => yaruDark,
+        BoggleThemeMode.yaruLight => yaruLight,
+      };
+
+  void setMode(BoggleThemeMode mode) {
+    if (mode == _mode) return;
+    _mode = mode;
+    _persist(mode.name);
+    notifyListeners();
+  }
+
+  static BoggleThemeMode _load() {
+    try {
+      final raw = _storage.callMethod<JSAny?>('getItem'.toJS, _storageKey.toJS);
+      if (raw != null) {
+        return BoggleThemeMode.values.asNameMap()[((raw as JSString).toDart)] ?? BoggleThemeMode.adwaitaDark;
+      }
+    } catch (_) {
+      /* storage unavailable */
+    }
+    return BoggleThemeMode.adwaitaDark;
+  }
+
+  static void _persist(String? mode) {
+    try {
+      if (mode == null) {
+        _storage.callMethod<JSAny?>('removeItem'.toJS, _storageKey.toJS);
+      } else {
+        _storage.callMethod<JSAny?>('setItem'.toJS, _storageKey.toJS, mode.toJS);
+      }
+    } catch (_) {
+      /* storage unavailable */
+    }
+  }
+}
+
+@JS('window.localStorage')
+external JSObject get _storage;
+
+/// Build the Adwaita ThemeData for the given brightness.
+ThemeData buildAdwaitaTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
   const accent = AdwaitaColors.blue3;
-  const window = AdwaitaColors.window;
-  const card = AdwaitaColors.card;
-  const border = AdwaitaColors.dark2;
+  final window = dark ? AdwaitaColors.window : AdwaitaColors.lightWindow;
+  final headerbar = dark ? AdwaitaColors.headerbar : AdwaitaColors.lightHeaderbar;
+  final card = dark ? AdwaitaColors.card : AdwaitaColors.light1;
+  final border = dark ? AdwaitaColors.dark2 : AdwaitaColors.light4;
+  final text = dark ? AdwaitaColors.light1 : AdwaitaColors.lightText;
+  final muted = dark ? AdwaitaColors.light5 : AdwaitaColors.dark2;
 
-  final scheme = ColorScheme.dark(
-    primary: accent,
-    onPrimary: AdwaitaColors.light1,
-    secondary: AdwaitaColors.blue2,
-    onSecondary: AdwaitaColors.light1,
-    error: AdwaitaColors.red2,
-    onError: AdwaitaColors.light1,
-    surface: window,
-    onSurface: AdwaitaColors.light1,
-    onSurfaceVariant: AdwaitaColors.light5,
-    outline: border,
-    outlineVariant: AdwaitaColors.dark1,
-    surfaceContainerHighest: card,
-  );
+  final scheme = dark
+      ? ColorScheme.dark(
+          primary: accent,
+          onPrimary: AdwaitaColors.light1,
+          secondary: AdwaitaColors.blue2,
+          onSecondary: AdwaitaColors.light1,
+          error: AdwaitaColors.red2,
+          onError: AdwaitaColors.light1,
+          surface: window,
+          onSurface: text,
+          onSurfaceVariant: muted,
+          outline: border,
+          outlineVariant: dark ? AdwaitaColors.dark1 : AdwaitaColors.light3,
+          surfaceContainerHighest: card,
+        )
+      : ColorScheme.light(
+          primary: accent,
+          onPrimary: AdwaitaColors.light1,
+          secondary: AdwaitaColors.blue2,
+          onSecondary: AdwaitaColors.light1,
+          error: AdwaitaColors.red3,
+          onError: AdwaitaColors.light1,
+          surface: window,
+          onSurface: text,
+          onSurfaceVariant: muted,
+          outline: border,
+          outlineVariant: AdwaitaColors.light3,
+          surfaceContainerHighest: headerbar,
+        );
 
-  const borderSide = BorderSide(color: border);
-  const focusedBorder = BorderSide(color: accent, width: 2);
+  const borderSide = BorderSide(color: AdwaitaColors.dark2);
+  final borderSideResolved = dark ? borderSide : const BorderSide(color: AdwaitaColors.light4);
+  final focusedBorder = BorderSide(color: accent, width: 2);
 
   final base = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: brightness,
     colorScheme: scheme,
     scaffoldBackgroundColor: window,
     // NOTE: no custom fontFamily on web - a missing family makes the text
@@ -112,7 +204,7 @@ ThemeData buildAdwaitaTheme() {
       bodyMedium: base.textTheme.bodyMedium?.copyWith(fontSize: 14),
       bodySmall: base.textTheme.bodySmall?.copyWith(
         fontSize: 13,
-        color: AdwaitaColors.light5,
+        color: muted,
       ),
       labelMedium: base.textTheme.labelMedium?.copyWith(
         fontSize: 12,
@@ -129,7 +221,7 @@ ThemeData buildAdwaitaTheme() {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         shape: const StadiumBorder(),
-        side: borderSide,
+        side: borderSideResolved,
         textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
       ),
     ),
@@ -141,9 +233,9 @@ ThemeData buildAdwaitaTheme() {
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
-        backgroundColor: card,
-        foregroundColor: AdwaitaColors.light1,
-        hoverColor: AdwaitaColors.dark1,
+        backgroundColor: dark ? card : AdwaitaColors.light2,
+        foregroundColor: text,
+        hoverColor: dark ? AdwaitaColors.dark1 : AdwaitaColors.light3,
       ),
     ),
     // Cards: 12px rounded, headerbar-toned surfaces.
@@ -160,16 +252,16 @@ ThemeData buildAdwaitaTheme() {
       filled: true,
       fillColor: card,
       floatingLabelBehavior: FloatingLabelBehavior.never,
-      labelStyle: const TextStyle(color: AdwaitaColors.light4),
-      hintStyle: const TextStyle(color: AdwaitaColors.light5),
+      labelStyle: TextStyle(color: dark ? AdwaitaColors.light4 : AdwaitaColors.dark2),
+      hintStyle: TextStyle(color: muted),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(kAdwaitaEntryRadius),
-        borderSide: borderSide,
+        borderSide: borderSideResolved,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(kAdwaitaEntryRadius),
-        borderSide: borderSide,
+        borderSide: borderSideResolved,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(kAdwaitaEntryRadius),
@@ -181,29 +273,35 @@ ThemeData buildAdwaitaTheme() {
       ),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: AdwaitaColors.headerbar,
-      contentTextStyle: const TextStyle(color: AdwaitaColors.light1),
+      backgroundColor: headerbar,
+      contentTextStyle: TextStyle(color: text),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(kAdwaitaCardRadius),
       ),
       behavior: SnackBarBehavior.floating,
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
-      linearTrackColor: AdwaitaColors.headerbar,
-      circularTrackColor: AdwaitaColors.headerbar,
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      linearTrackColor: headerbar,
+      circularTrackColor: headerbar,
     ),
     chipTheme: base.chipTheme.copyWith(
       backgroundColor: card,
       shape: const StadiumBorder(side: BorderSide.none),
-      labelStyle: const TextStyle(color: AdwaitaColors.light1, fontSize: 12),
+      labelStyle: TextStyle(color: text, fontSize: 12),
     ),
-    dividerTheme: const DividerThemeData(
-      color: AdwaitaColors.dark2,
+    dividerTheme: DividerThemeData(
+      color: border,
       thickness: 1,
     ),
-    listTileTheme: const ListTileThemeData(
-      iconColor: AdwaitaColors.light5,
-      textColor: AdwaitaColors.light1,
+    listTileTheme: ListTileThemeData(
+      iconColor: muted,
+      textColor: text,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: headerbar,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kAdwaitaCardRadius),
+      ),
     ),
   );
 }
