@@ -44,17 +44,33 @@
       height: 100%;
       background: #242424;
       overflow: hidden;
-      touch-action: manipulation;
+      overscroll-behavior: none;
+      touch-action: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
       -webkit-tap-highlight-color: transparent;
     }
     flutter-view {
       display: block;
       width: 100%;
       height: 100%;
+      touch-action: none;
+    }
+    /* keep the semantics DOM inputs fully interactive */
+    flt-semantics-host input,
+    flt-semantics-host textarea {
+      touch-action: auto;
+      -webkit-user-select: text;
     }
   </style>
 </head>
 <body>
+  <script>
+    // Belt and suspenders against browser touch zoom (pinch on iOS Safari,
+    // double-tap elsewhere): the game owns all gestures.
+    document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+    document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
   <!-- iroh gossip bridge (Rust wasm); driven by the Flutter app via JS interop -->
   <script type="module" src="glue.js"></script>

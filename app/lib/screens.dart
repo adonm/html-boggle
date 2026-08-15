@@ -1,5 +1,6 @@
-/// Screens: lobby, joining, room, play, results. Styled by the Yaru theme
+/// Screens: lobby, joining, room, play, results. Styled by the Yaru themes
 /// with semantics labels so screen readers and tests can navigate the game.
+/// Layouts adapt to phone-sized viewports (stacked board, scrollable panels).
 library;
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,8 @@ import 'package:flutter/services.dart';
 
 import 'game.dart';
 import 'theme.dart';
+
+const double _cardRadius = 12;
 
 // -------------------------------------------------------------------- home
 
@@ -85,35 +88,104 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// -------------------------------------------------------------- theme menu
+// -------------------------------------------------------------- appearance
 
-/// Quick theme switcher: Adwaita / Yaru x dark / light, persisted.
+/// Yaru accent dots + dark/light switch. Used in the lobby and in the theme
+/// bottom sheet.
+class AppearanceSection extends StatelessWidget {
+  const AppearanceSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final themes = ThemeController.instance;
+    final scheme = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: themes,
+      builder: (context, _) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final variant in themes.accents)
+                Semantics(
+                  label: 'Accent ${variant.name}',
+                  button: true,
+                  selected: themes.variant == variant,
+                  child: Tooltip(
+                    message: variant.name,
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => themes.setVariant(variant),
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: variant.color,
+                          border: Border.all(
+                            color: themes.variant == variant
+                                ? scheme.onSurface
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: themes.variant == variant
+                            ? const Icon(Icons.check, size: 18, color: Colors.white)
+                            : null,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Dark')),
+              ButtonSegment(value: true, label: Text('Light')),
+            ],
+            selected: {themes.light},
+            showSelectedIcon: false,
+            onSelectionChanged: (sel) => themes.setLight(sel.first),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Quick theme switcher: opens a bottom sheet with the appearance settings.
 class ThemeMenu extends StatelessWidget {
   const ThemeMenu({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final themes = ThemeController.instance;
-    return PopupMenuButton<BoggleThemeMode>(
+    return IconButton(
       tooltip: 'Theme',
       icon: const Icon(Icons.palette_outlined),
-      onSelected: themes.setMode,
-      itemBuilder: (context) => [
-        for (final mode in BoggleThemeMode.values)
-          PopupMenuItem(
-            value: mode,
-            child: Row(
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  themes.mode == mode ? Icons.radio_button_checked : Icons.radio_button_off,
-                  size: 18,
+                Text(
+                  'APPEARANCE',
+                  style: Theme.of(context).textTheme.labelMedium,
                 ),
-                const SizedBox(width: 8),
-                Text(mode.label),
+                const SizedBox(height: 12),
+                const AppearanceSection(),
               ],
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -163,9 +235,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Card(
-            margin: const EdgeInsets.all(24),
+            margin: const EdgeInsets.all(18),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -213,7 +285,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -229,8 +301,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               FocusScope.of(context).nextFocus(),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
+                      const SizedBox(width: 6),
+                      IconButton(
                         tooltip: 'Random name',
                         icon: const Icon(Icons.refresh),
                         onPressed: () => setState(
@@ -239,7 +311,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _room,
                     decoration: const InputDecoration(
@@ -251,11 +323,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     enableSuggestions: false,
                     onSubmitted: (_) => _join(),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 18),
                   FilledButton(
                     onPressed: _join,
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                     child: const Text('JOIN ROOM'),
                   ),
@@ -275,39 +347,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     style: theme.textTheme.labelMedium,
                   ),
                   const SizedBox(height: 8),
-                  Center(
-                    child: SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('Adwaita')),
-                        ButtonSegment(value: true, label: Text('Yaru')),
-                      ],
-                      selected: {ThemeController.instance.mode.isYaru},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (sel) => ThemeController.instance.setMode(
-                        sel.first ? BoggleThemeMode.yaruDark : BoggleThemeMode.adwaitaDark,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Center(
-                    child: SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('Dark')),
-                        ButtonSegment(value: true, label: Text('Light')),
-                      ],
-                      selected: {ThemeController.instance.mode.isLight},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (sel) => ThemeController.instance.setMode(
-                        sel.first
-                            ? (ThemeController.instance.mode.isYaru
-                                ? BoggleThemeMode.yaruLight
-                                : BoggleThemeMode.adwaitaLight)
-                            : (ThemeController.instance.mode.isYaru
-                                ? BoggleThemeMode.yaruDark
-                                : BoggleThemeMode.adwaitaDark),
-                      ),
-                    ),
-                  ),
+                  const AppearanceSection(),
                 ],
               ),
             ),
@@ -330,9 +370,9 @@ class JoiningScreen extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           CircularProgressIndicator(),
-          SizedBox(height: 24),
+          SizedBox(height: 18),
           Text('Joining room...'),
-          SizedBox(height: 8),
+          SizedBox(height: 6),
           Text('connecting peers through iroh gossip'),
         ],
       ),
@@ -352,93 +392,95 @@ class RoomScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final g = game;
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'ROOM  ${g.room}',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.bold,
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'ROOM  ${g.room}',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                  const ThemeMenu(),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'players who enter this code join the same game',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final p in g.players)
-                        ListTile(
-                          dense: true,
-                          leading: Icon(
-                            p.isMe ? Icons.person : Icons.person_outline,
-                            color: p.isMe
-                                ? AdwaitaColors.green4
-                                : theme.colorScheme.onSurfaceVariant,
-                          ),
-                          title: Text(
-                            (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
-                                (p.id == g.hostId ? '  · HOST' : ''),
-                          ),
-                          trailing: Text('${p.score} pts'),
-                        ),
-                      Text(
-                        '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+                    const ThemeMenu(),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 24),
-              if (g.isHost)
-                FilledButton(
-                  onPressed: g.startRound,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: const Text('START ROUND'),
-                )
-              else
-                const Text(
-                  'waiting for the host to start...',
+                const SizedBox(height: 4),
+                Text(
+                  'players who enter this code join the same game',
                   textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
                 ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final url = Uri.base
-                      .replace(queryParameters: {'room': g.room}, fragment: '')
-                      .toString();
-                  await Clipboard.setData(ClipboardData(text: url));
-                  g.showToast('Link copied - share it!');
-                },
-                icon: const Icon(Icons.link),
-                label: const Text('SHARE LINK'),
-              ),
-            ],
+                const SizedBox(height: 18),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final p in g.players)
+                          ListTile(
+                            dense: true,
+                            leading: Icon(
+                              p.isMe ? Icons.person : Icons.person_outline,
+                              color: p.isMe
+                                  ? BoggleColors.youGreen
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                            title: Text(
+                              (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
+                                  (p.id == g.hostId ? '  · HOST' : ''),
+                            ),
+                            trailing: Text('${p.score} pts'),
+                          ),
+                        Text(
+                          '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                if (g.isHost)
+                  FilledButton(
+                    onPressed: g.startRound,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('START ROUND'),
+                  )
+                else
+                  const Text(
+                    'waiting for the host to start...',
+                    textAlign: TextAlign.center,
+                  ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final url = Uri.base
+                        .replace(queryParameters: {'room': g.room}, fragment: '')
+                        .toString();
+                    await Clipboard.setData(ClipboardData(text: url));
+                    g.showToast('Link copied - share it!');
+                  },
+                  icon: const Icon(Icons.link),
+                  label: const Text('SHARE LINK'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -464,100 +506,146 @@ class PlayScreen extends StatelessWidget {
     final g = game;
     final remaining = g.remainingMs();
     final urgent = remaining < 10000;
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(kAdwaitaCardRadius),
-            ),
-            child: Row(
-              children: [
-                Text('ROOM ${g.room} · ROUND ${g.round}',
-                    style: theme.textTheme.titleMedium),
-                const Spacer(),
-                Text(
-                  _fmt(remaining),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.bold,
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 900),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 720;
+            final header = Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(_cardRadius),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'ROOM ${g.room} · ROUND ${g.round}',
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                const ThemeMenu(),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: remaining / roundMs,
-              minHeight: 6,
-              color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+                  Text(
+                    _fmt(remaining),
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const ThemeMenu(),
+                ],
+              ),
+            );
+            final progress = ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: remaining / roundMs,
+                minHeight: 6,
+                color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              ),
+            );
+            final wordText = Text(
+              g.currentWord.isEmpty
+                  ? 'tap tiles to spell a word'
+                  : g.currentWord.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: g.currentWord.isEmpty
+                    ? theme.colorScheme.onSurfaceVariant
+                    : theme.colorScheme.primary,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 3,
+              ),
+            );
+            final actions = Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 6,
+              runSpacing: 6,
               children: [
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    children: [
-                      Expanded(child: _buildBoard(theme, g)),
-                      const SizedBox(height: 12),
-                      Text(
-                        g.currentWord.isEmpty
-                            ? 'tap tiles to spell a word'
-                            : g.currentWord.toUpperCase(),
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: g.currentWord.isEmpty
-                              ? theme.colorScheme.onSurfaceVariant
-                              : theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 3,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        runSpacing: 8,
+                FilledButton.icon(
+                  onPressed: g.currentWord.length >= 3 ? g.submitWord : null,
+                  icon: const Icon(Icons.arrow_forward),
+                  label: const Text('SUBMIT'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: g.path.isEmpty ? null : g.popTile,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('UNDO'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: g.path.isEmpty ? null : g.clearPath,
+                  icon: const Icon(Icons.backspace_outlined),
+                  label: const Text('CLEAR'),
+                ),
+              ],
+            );
+
+            if (wide) {
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    header,
+                    const SizedBox(height: 4),
+                    progress,
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          FilledButton.icon(
-                            onPressed: g.currentWord.length >= 3 ? g.submitWord : null,
-                            icon: const Icon(Icons.arrow_forward),
-                            label: const Text('SUBMIT'),
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              children: [
+                                Expanded(child: _buildBoard(theme, g)),
+                                const SizedBox(height: 12),
+                                wordText,
+                                const SizedBox(height: 6),
+                                actions,
+                              ],
+                            ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: g.path.isEmpty ? null : g.popTile,
-                            icon: const Icon(Icons.arrow_back),
-                            label: const Text('UNDO'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: g.path.isEmpty ? null : g.clearPath,
-                            icon: const Icon(Icons.backspace_outlined),
-                            label: const Text('CLEAR'),
-                          ),
+                          const SizedBox(width: 12),
+                          SizedBox(width: 252, child: _buildPlayers(theme, g)),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                SizedBox(width: 252, child: _buildPlayers(theme, g)),
-              ],
-            ),
-          ),
-        ],
+              );
+            }
+
+            // phone layout: stacked, page scrolls
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  header,
+                  const SizedBox(height: 4),
+                  progress,
+                  const SizedBox(height: 12),
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: _buildBoard(theme, g),
+                  ),
+                  const SizedBox(height: 12),
+                  wordText,
+                  const SizedBox(height: 6),
+                  actions,
+                  const SizedBox(height: 12),
+                  _buildPlayers(theme, g, scrollable: false),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -565,22 +653,20 @@ class PlayScreen extends StatelessWidget {
   Widget _buildBoard(ThemeData theme, Game g) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final tile = (constraints.maxWidth - 3 * 8) / 4;
         return GridView.count(
           crossAxisCount: 4,
           mainAxisSpacing: 8,
           crossAxisSpacing: 8,
           physics: const NeverScrollableScrollPhysics(),
           children: [
-            for (var i = 0; i < 16; i++)
-              _tile(theme, g, i, tile),
+            for (var i = 0; i < 16; i++) _tile(theme, g, i),
           ],
         );
       },
     );
   }
 
-  Widget _tile(ThemeData theme, Game g, int i, double size) {
+  Widget _tile(ThemeData theme, Game g, int i) {
     final order = g.path.indexOf(i);
     final selected = order >= 0;
     final letter = g.board.isEmpty ? '' : g.board[i].toUpperCase();
@@ -592,9 +678,9 @@ class PlayScreen extends StatelessWidget {
         color: selected
             ? theme.colorScheme.primary
             : theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(_cardRadius),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(_cardRadius),
           onTap: () => g.tapTile(i),
           child: SizedBox.expand(
             child: Column(
@@ -624,16 +710,28 @@ class PlayScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPlayers(ThemeData theme, Game g) {
+  Widget _buildPlayers(ThemeData theme, Game g, {bool scrollable = true}) {
     final me = g.me;
+    final words = Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final w in (me?.words.toList().reversed ?? const Iterable<String>.empty()))
+          Chip(
+            label: Text(w.toUpperCase()),
+            visualDensity: VisualDensity.compact,
+          ),
+      ],
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('PLAYERS', style: theme.textTheme.labelMedium),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             for (final p in g.players)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -646,7 +744,7 @@ class PlayScreen extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: p.isMe
                             ? const TextStyle(
-                                color: AdwaitaColors.green4,
+                                color: BoggleColors.youGreen,
                                 fontWeight: FontWeight.bold,
                               )
                             : null,
@@ -666,22 +764,11 @@ class PlayScreen extends StatelessWidget {
               'YOUR WORDS (${me?.words.length ?? 0})',
               style: theme.textTheme.labelMedium,
             ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: me == null
-                  ? const SizedBox.shrink()
-                  : Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final w in me.words.toList().reversed)
-                          Chip(
-                            label: Text(w.toUpperCase()),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                      ],
-                    ),
-            ),
+            const SizedBox(height: 6),
+            if (scrollable)
+              Flexible(child: SingleChildScrollView(child: words))
+            else
+              words,
           ],
         ),
       ),
@@ -703,100 +790,105 @@ class ResultsScreen extends StatelessWidget {
     final ranked = [...g.players]
       ..sort((a, b) => b.score.compareTo(a.score));
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'ROUND ${g.round} OVER',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'ROUND ${g.round} OVER',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = 0; i < ranked.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (i < 3)
-                                Icon(
-                                  Icons.emoji_events,
-                                  size: 22,
-                                  color: const [
-                                    AdwaitaColors.yellow5,
-                                    AdwaitaColors.light4,
-                                    AdwaitaColors.orange3,
-                                  ][i],
-                                )
-                              else
-                                SizedBox(
-                                  width: 32,
-                                  child: Text(
-                                    '${i + 1}.',
-                                    style: theme.textTheme.titleMedium,
+                const SizedBox(height: 18),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < ranked.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (i < 3)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8, top: 2),
+                                    child: Icon(
+                                      Icons.emoji_events,
+                                      size: 22,
+                                      color: const [
+                                        BoggleColors.medalGold,
+                                        BoggleColors.medalSilver,
+                                        BoggleColors.medalBronze,
+                                      ][i],
+                                    ),
+                                  )
+                                else
+                                  SizedBox(
+                                    width: 32,
+                                    child: Text(
+                                      '${i + 1}.',
+                                      style: theme.textTheme.titleMedium,
+                                    ),
+                                  ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${ranked[i].name}${ranked[i].isMe ? ' (you)' : ''}',
+                                        style: ranked[i].isMe
+                                            ? const TextStyle(
+                                                color: BoggleColors.youGreen,
+                                                fontWeight: FontWeight.bold,
+                                              )
+                                            : theme.textTheme.titleMedium,
+                                      ),
+                                      if (ranked[i].words.isNotEmpty)
+                                        Text(
+                                          ranked[i].words.map((w) => w.toUpperCase()).join(', '),
+                                          style: theme.textTheme.bodySmall,
+                                        ),
+                                    ],
                                   ),
                                 ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${ranked[i].name}${ranked[i].isMe ? ' (you)' : ''}',
-                                      style: ranked[i].isMe
-                                          ? const TextStyle(
-                                              color: AdwaitaColors.green4,
-                                              fontWeight: FontWeight.bold,
-                                            )
-                                          : theme.textTheme.titleMedium,
-                                    ),
-                                    if (ranked[i].words.isNotEmpty)
-                                      Text(
-                                        ranked[i].words.map((w) => w.toUpperCase()).join(', '),
-                                        style: theme.textTheme.bodySmall,
-                                      ),
-                                  ],
+                                Text(
+                                  '${ranked[i].score} pts',
+                                  style: theme.textTheme.titleMedium,
                                 ),
-                              ),
-                              Text(
-                                '${ranked[i].score} pts',
-                                style: theme.textTheme.titleMedium,
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              if (g.isHost)
-                FilledButton(
-                  onPressed: g.startRound,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                const SizedBox(height: 18),
+                if (g.isHost)
+                  FilledButton(
+                    onPressed: g.startRound,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('NEXT ROUND'),
+                  )
+                else
+                  const Text(
+                    'waiting for the host...',
+                    textAlign: TextAlign.center,
                   ),
-                  child: const Text('NEXT ROUND'),
-                )
-              else
-                const Text(
-                  'waiting for the host...',
-                  textAlign: TextAlign.center,
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
