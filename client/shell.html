@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boggle &middot; raylib &times; iroh</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #0b0b12;
+      overflow: hidden;
+    }
+    #wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+      background: #141420;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+  </div>
+  <script>
+    // raylib web requires Module.canvas to be provided up front.
+    var Module = {
+      canvas: (function () {
+        var canvas = document.getElementById("canvas");
+        canvas.addEventListener(
+          "webglcontextlost",
+          function (e) {
+            alert("WebGL context lost. You will need to reload the page.");
+            e.preventDefault();
+          },
+          false,
+        );
+        return canvas;
+      })(),
+      setStatus: function (text) {
+        console.log(text);
+      },
+    };
+    // Letterbox the 960x600 canvas into the viewport without distorting it.
+    (function fit() {
+      const canvas = document.getElementById("canvas");
+      const s = Math.min(window.innerWidth / 960, window.innerHeight / 600);
+      canvas.style.width = 960 * s + "px";
+      canvas.style.height = 600 * s + "px";
+    })();
+    window.addEventListener("resize", function () {
+      const canvas = document.getElementById("canvas");
+      const s = Math.min(window.innerWidth / 960, window.innerHeight / 600);
+      canvas.style.width = 960 * s + "px";
+      canvas.style.height = 600 * s + "px";
+    });
+  </script>
+  <script src="sha256.js"></script>
+  {{{ SCRIPT }}}
+  <script type="module" src="/glue.js"></script>
+</body>
+</html>
