@@ -4,9 +4,9 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:yaru/yaru.dart';
 
 import 'game.dart';
+import 'theme.dart';
 
 // -------------------------------------------------------------------- home
 
@@ -153,9 +153,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      YaruIconButton(
+                      IconButton.filledTonal(
                         tooltip: 'Random name',
-                        icon: const Icon(YaruIcons.refresh),
+                        icon: const Icon(Icons.refresh),
                         onPressed: () => setState(
                           () => _name.text = widget.game.randomName(),
                         ),
@@ -268,7 +268,7 @@ class RoomScreen extends StatelessWidget {
                           leading: Icon(
                             p.isMe ? Icons.person : Icons.person_outline,
                             color: p.isMe
-                                ? theme.colorScheme.primary
+                                ? AdwaitaColors.green4
                                 : theme.colorScheme.onSurfaceVariant,
                           ),
                           title: Text(
@@ -309,7 +309,7 @@ class RoomScreen extends StatelessWidget {
                   await Clipboard.setData(ClipboardData(text: url));
                   g.showToast('Link copied - share it!');
                 },
-                icon: const Icon(YaruIcons.insert_link),
+                icon: const Icon(Icons.link),
                 label: const Text('SHARE LINK'),
               ),
             ],
@@ -339,7 +339,7 @@ class PlayScreen extends StatelessWidget {
     final remaining = g.remainingMs();
     final urgent = remaining < 10000;
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -359,11 +359,14 @@ class PlayScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          LinearProgressIndicator(
-            value: remaining / roundMs,
-            minHeight: 6,
-            color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: remaining / roundMs,
+              minHeight: 6,
+              color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            ),
           ),
           const SizedBox(height: 16),
           Expanded(
@@ -396,17 +399,17 @@ class PlayScreen extends StatelessWidget {
                         children: [
                           FilledButton.icon(
                             onPressed: g.currentWord.length >= 3 ? g.submitWord : null,
-                            icon: const Icon(YaruIcons.go_next),
+                            icon: const Icon(Icons.arrow_forward),
                             label: const Text('SUBMIT'),
                           ),
                           OutlinedButton.icon(
                             onPressed: g.path.isEmpty ? null : g.popTile,
-                            icon: const Icon(YaruIcons.go_previous),
+                            icon: const Icon(Icons.arrow_back),
                             label: const Text('UNDO'),
                           ),
                           OutlinedButton.icon(
                             onPressed: g.path.isEmpty ? null : g.clearPath,
-                            icon: const Icon(YaruIcons.edit_clear),
+                            icon: const Icon(Icons.backspace_outlined),
                             label: const Text('CLEAR'),
                           ),
                         ],
@@ -414,8 +417,8 @@ class PlayScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 16),
-                SizedBox(width: 240, child: _buildPlayers(theme, g)),
+                const SizedBox(width: 12),
+                SizedBox(width: 252, child: _buildPlayers(theme, g)),
               ],
             ),
           ),
@@ -507,8 +510,8 @@ class PlayScreen extends StatelessWidget {
                             (p.id == g.hostId ? ' · HOST' : ''),
                         overflow: TextOverflow.ellipsis,
                         style: p.isMe
-                            ? TextStyle(
-                                color: theme.colorScheme.primary,
+                            ? const TextStyle(
+                                color: AdwaitaColors.green4,
                                 fontWeight: FontWeight.bold,
                               )
                             : null,
@@ -608,8 +611,8 @@ class ResultsScreen extends StatelessWidget {
                                     Text(
                                       '${ranked[i].name}${ranked[i].isMe ? ' (you)' : ''}',
                                       style: ranked[i].isMe
-                                          ? TextStyle(
-                                              color: theme.colorScheme.primary,
+                                          ? const TextStyle(
+                                              color: AdwaitaColors.green4,
                                               fontWeight: FontWeight.bold,
                                             )
                                           : theme.textTheme.titleMedium,

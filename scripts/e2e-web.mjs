@@ -159,7 +159,7 @@ async function waitForSoft(fn, timeoutMs) {
  *  semantics inputs are flaky. Returns the page state once in the room. */
 async function joinRoom(page, name) {
   page.on("console", (m) => {
-    if (m.type() === "error" || m.type() === "warning") {
+    if (m.type() === "error" || m.type() === "warning" || m.text().startsWith("[boggle]")) {
       // harmless: pkarr GETs 404 before anyone publishes
       if (m.text().includes("dns.iroh.link")) return;
       console.log(`  [${name} console.${m.type()}]`, m.text().slice(0, 160));
@@ -169,27 +169,40 @@ async function joinRoom(page, name) {
   await page.goto(BASE, { waitUntil: "load", timeout: 60_000 });
   await waitFor(() => state(page), 90_000, `${name}: flutter booted`);
 
-  let viaUi = false;
+  let joined = null;
   try {
     const nameInput = page.locator('input[aria-label="Your name"]');
     const roomInput = page.locator('input[aria-label="Room code"]');
     await waitForSoft(async () => (await nameInput.count()) > 0, 15_000);
     // Click to focus first (Flutter wires its real editing input), then type:
-    // filling the semantics input directly doesn't reliably reach Flutter.
+    // filling the semantics input directly doesn't reliably reach Flutter, and
+    // its value/label change once focused. The first keystroke can also race
+    // the hidden input attachment, so verify the ROOM via game state after
+    // joining and retry the lobby if a character got eaten.
     await nameInput.click();
-    await page.keyboard.type(name, { delay: 40 });
-    await roomInput.click();
-    await page.keyboard.type(ROOM, { delay: 40 });
     await sleep(300);
-    await page.getByRole("button", { name: "JOIN ROOM" }).click();
-    viaUi = (await waitForSoft(async () => {
-      const s = await state(page);
-      return s && (s.phase === "room" || s.phase === "joining") ? s : null;
-    }, 20_000)) !== null;
+    await page.keyboard.type(name, { delay: 40 });
+    const joinBtn = page.getByRole("button", { name: "JOIN ROOM" });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await roomInput.click();
+      await sleep(300);
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type(ROOM, { delay: 40 });
+      await sleep(200);
+      await joinBtn.click();
+      const s = await waitForSoft(async () => {
+        const st = await state(page);
+        return st && (st.phase === "room" || st.phase === "joining") ? st : null;
+      }, 25_000);
+      if (s && s.room === ROOM) {
+        joined = s;
+        break;
+      }
+    }
   } catch {
-    viaUi = false;
+    joined = null;
   }
-  if (!viaUi) {
+  if (!joined) {
     console.log(`  ${name}: lobby UI flaky - joining via debug hook`);
     await page.evaluate(
       ([r, n]) => window.__boggleDebugJoin(r, n),

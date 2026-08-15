@@ -4,10 +4,10 @@ import 'dart:js_interop_unsafe';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:yaru/yaru.dart';
 
 import 'game.dart';
 import 'screens.dart';
+import 'theme.dart';
 
 @JS('window')
 external JSObject get _window;
@@ -46,15 +46,12 @@ Future<void> main() async {
   _installDebugHooks(game);
 
   runApp(
-    YaruTheme(
-      builder: (context, yaru, child) => MaterialApp(
-        title: 'Boggle',
-        debugShowCheckedModeBanner: false,
-        theme: yaruLight,
-        darkTheme: yaruDark,
-        themeMode: ThemeMode.dark,
-        home: HomeScreen(game: game),
-      ),
+    MaterialApp(
+      title: 'Boggle',
+      debugShowCheckedModeBanner: false,
+      theme: buildAdwaitaTheme(),
+      themeMode: ThemeMode.dark,
+      home: HomeScreen(game: game),
     ),
   );
 }
