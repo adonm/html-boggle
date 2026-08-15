@@ -79,9 +79,11 @@ Pushing to `main` builds the game with [mise-action](https://github.com/jdx/mise
 1. Repo settings → Pages → Source: **GitHub Actions** (one-time).
 2. Push to `main`.
 
-The site works from any base path (project pages like `user.github.io/html-boggle/` are fine —
-the Flutter build gets a relative `<base href>`). Fully multiplayer on static hosting: the game
-has no server component. There is also a manually-triggered
+The live game is at **[boggle.adonm.dev](https://boggle.adonm.dev)**. The custom domain is
+kept alive across workflow deploys by the `CNAME` file the build emits into `dist/` (Pages
+needs it inside the artifact). The site also works from any base path — the Flutter build
+resolves its own `<base href>` at runtime — and is fully multiplayer on static hosting: the
+game has no server component. There is also a manually-triggered
 [`e2e.yml`](.github/workflows/e2e.yml) that runs the full two-browser test in CI.
 
 ## Layout

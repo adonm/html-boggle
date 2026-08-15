@@ -103,6 +103,9 @@ export async function build(): Promise<void> {
   await Deno.copyFile(new URL("../glue/glue.js", import.meta.url), new URL("glue.js", DIST));
   // GitHub Pages runs Jekyll over the artifact by default; .nojekyll opts out.
   await Deno.writeFile(new URL(".nojekyll", DIST), new Uint8Array(0));
+  // Custom domain: must live INSIDE the published artifact, or workflow
+  // deploys would drop the boggle.adonm.dev binding.
+  await Deno.writeFile(new URL("CNAME", DIST), new TextEncoder().encode("boggle.adonm.dev\n"));
   console.log("build complete ->", DIST.pathname);
 }
 
