@@ -29,7 +29,8 @@ static void sendState(void);
 #define GAME_H 600
 #define ROUND_MS 180000.0
 #define HELLO_INTERVAL_MS 5000.0
-#define PLAYER_TIMEOUT_MS 20000.0
+#define PLAYER_TIMEOUT_MS 45000.0
+#define STATE_INTERVAL_MS 10000.0
 #define JOIN_TIMEOUT_MS 15000.0
 #define MAX_PLAYERS 8
 #define MAX_WORDS 96
@@ -66,10 +67,13 @@ static int roundN = 0;
 static char toast[192] = "";
 static double toastUntil = 0;
 static double lastHello = 0;
+static double lastState = 0;
 static double joinStartedAt = 0;
 static char inputName[MAX_NAME_LEN] = "";
 static char inputRoom[MAX_ROOM_LEN] = "";
 static int focusField = 0; /* 0 = name, 1 = room */
+static char pendingWord[MAX_WORD_LEN] = ""; /* claim awaiting host ack */
+static double pendingSentAt = 0;
 
 /* dictionary (embedded words.txt, sorted) */
 static char *dictData = NULL;
@@ -383,6 +387,7 @@ static void popTile(void) {
 static void applyStartLocally(void) {
     for (int i = 0; i < playersN; i++) players[i].wordsN = 0;
     clearSel();
+    pendingWord[0] = 0;
     phase = ST_PLAY;
     setToast("Round %d - find words!", roundN);
 }
@@ -432,6 +437,8 @@ static void submitWord(void) {
         setToast("+%d for \"%s\"!", scoreForLen(wlen), curWord);
     } else {
         addWordTo(me, curWord);
+        strncpy(pendingWord, curWord, sizeof pendingWord - 1);
+        pendingSentAt = js_now();
         sendClaim(curWord);
         setToast("Submitted \"%s\"", curWord);
     }
@@ -614,7 +621,12 @@ void EMSCRIPTEN_KEEPALIVE boggle_on_event(const char *json) {
             sendReject(word, node, "invalid");
             return;
         }
-        if (playerHasWord(p, word) || anyoneHasWord(word, node)) {
+        if (playerHasWord(p, word)) {
+            /* idempotent re-ack: the award got lost in transit, resend it */
+            sendAward(word, node, scoreForLen(wlen));
+            return;
+        }
+        if (anyoneHasWord(word, node)) {
             sendReject(word, node, "taken");
             return;
         }
@@ -639,8 +651,13 @@ void EMSCRIPTEN_KEEPALIVE boggle_on_event(const char *json) {
         Player *p = playerById(node);
         if (!p) return;
         if (phase != ST_PLAY) return;
-        if (playerHasWord(p, word)) return; /* e.g. our own optimistic entry */
+        if (playerHasWord(p, word)) {
+            /* duplicate delivery of an award we already applied */
+            if (p->isMe && strcmp(word, pendingWord) == 0) pendingWord[0] = 0;
+            return;
+        }
         addWordTo(p, word);
+        if (p->isMe && strcmp(word, pendingWord) == 0) pendingWord[0] = 0;
         if (!p->isMe) {
             int pts = ptsTok >= 0 ? jint(json, &t[ptsTok]) : scoreForLen((int)strlen(word));
             setToast("%s: \"%s\" +%d", p->name[0] ? p->name : "Someone", word, pts);
@@ -653,6 +670,7 @@ void EMSCRIPTEN_KEEPALIVE boggle_on_event(const char *json) {
         int reasonTok = jfind(json, n, 0, "reason");
         if (wordTok < 0) return;
         jcopy(json, &t[wordTok], word, sizeof word);
+        if (strcmp(word, pendingWord) == 0) pendingWord[0] = 0;
         char why[32] = "rejected";
         if (reasonTok >= 0) jcopy(json, &t[reasonTok], why, sizeof why);
         Player *me = playerById(meId);
@@ -706,6 +724,40 @@ EMSCRIPTEN_KEEPALIVE const char *boggle_dbg(void) {
         off += snprintf(buf + off, sizeof buf - off, " p%d=%d,%d", i, players[i].score, players[i].wordsN);
     }
     return buf;
+}
+
+static int findPathCells(const char *w, int wlen, int idx, int pos, int out[16], int outN) {
+    if (idx == wlen) return 1;
+    for (int i = 0; i < 16; i++) {
+        if (visited[i]) continue;
+        if (pos >= 0) {
+            int dr = abs(i / 4 - pos / 4), dc = abs(i % 4 - pos % 4);
+            if (dr > 1 || dc > 1) continue;
+        }
+        int tl = (int)strlen(board[i]);
+        if (tl == 0 || idx + tl > wlen) continue;
+        if (strncmp(w + idx, board[i], tl) != 0) continue;
+        visited[i] = 1;
+        out[outN] = i;
+        if (findPathCells(w, wlen, idx + tl, i, out, outN + 1)) return 1;
+        visited[i] = 0;
+    }
+    return 0;
+}
+
+/* Test/debug helper: build a valid tile path for `word` and submit it, as if
+ * the player had clicked the tiles and pressed Enter. */
+EMSCRIPTEN_KEEPALIVE void boggle_debug_submit(const char *word) {
+    if (phase != ST_PLAY || !word[0]) return;
+    clearSel();
+    int out[16];
+    memset(visited, 0, sizeof visited);
+    int wlen = (int)strlen(word);
+    if (!findPathCells(word, wlen, 0, -1, out, 0)) return;
+    int total = 0, n = 0;
+    for (n = 0; n < 16 && total < wlen; n++) total += (int)strlen(board[out[n]]);
+    for (int i = 0; i < n; i++) pushTile(out[i]);
+    submitWord();
 }
 
 /* ---------------------------------------------------------------------- ui */
@@ -1050,6 +1102,29 @@ static void UpdateDrawFrame(void) {
         if (now - lastHello > HELLO_INTERVAL_MS) {
             lastHello = now;
             sendHello();
+        }
+        /* The host periodically publishes an authoritative snapshot so that
+         * transient connection drops self-heal (lost awards/claims resync). */
+        if (phase == ST_PLAY && iAmHost() && now - lastState > STATE_INTERVAL_MS) {
+            lastState = now;
+            sendState();
+        }
+        /* keep re-sending an unacknowledged claim until the host answers */
+        if (phase == ST_PLAY && pendingWord[0]) {
+            if (iAmHost()) {
+                /* we took over as host: adjudicate our own pending claim */
+                Player *me = playerById(meId);
+                if (me && !playerHasWord(me, pendingWord) &&
+                    !anyoneHasWord(pendingWord, meId) && dictHas(pendingWord) &&
+                    wordOnBoard(pendingWord)) {
+                    addWordTo(me, pendingWord);
+                    sendAward(pendingWord, meId, scoreForLen((int)strlen(pendingWord)));
+                }
+                pendingWord[0] = 0;
+            } else if (now - pendingSentAt > 5000.0) {
+                pendingSentAt = now;
+                sendClaim(pendingWord);
+            }
         }
         for (int i = playersN - 1; i >= 0; i--) {
             if (!players[i].isMe && now - players[i].lastSeen > PLAYER_TIMEOUT_MS) {

@@ -75,7 +75,7 @@ async function buildClient(): Promise<void> {
     "-sINITIAL_MEMORY=67108864",
     "-sGL_ENABLE_GET_PROC_ADDRESS=1",
     "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString",
-    "-sEXPORTED_FUNCTIONS=_main,_boggle_on_event,_boggle_set_board,_boggle_dbg",
+    "-sEXPORTED_FUNCTIONS=_main,_boggle_on_event,_boggle_set_board,_boggle_dbg,_boggle_debug_submit",
     "-sENVIRONMENT=web",
     "--embed-file",
     ".cache/words.txt@/words.txt",

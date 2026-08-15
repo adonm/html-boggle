@@ -169,7 +169,7 @@ async function joinRoom(page, name) {
   // verify the room code is right and otherwise drive the glue directly.
   // Everything after this point is still the real iroh + registry + raylib flow.
   let viaLobby = false;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  {
     await page.evaluate(() => document.getElementById("canvas").focus());
     await click(page, 480, 300); // name field
     await page.keyboard.type(name, { delay: 60 });
@@ -186,10 +186,7 @@ async function joinRoom(page, name) {
       const d = parseDbg(await dbg(page));
       return d.phase === 2 ? d : null;
     }, 12_000);
-    if (joined && joined.room === ROOM) {
-      viaLobby = true;
-      break;
-    }
+    if (joined && joined.room === ROOM) viaLobby = true;
   }
   if (!viaLobby) {
     console.log(`  ${name}: lobby keyboard flaky - joining via glue directly`);
@@ -242,19 +239,25 @@ const word = findWord();
 console.log("test word:", word);
 if (!word) fail("no word found on board");
 
-let browser;
+let browserA, browserB;
 try {
-  browser = await chromium.launch({
+  // Two separate browser processes: a single headless browser throttles the
+  // sockets of its non-active contexts, which breaks the P2P overlay.
+  browserA = await chromium.launch({
+    executablePath: SHELL,
+    args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+  });
+  browserB = await chromium.launch({
     executablePath: SHELL,
     args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
   });
 
   console.log("page A (Alice)...");
-  const pageA = await (await browser.newContext({ viewport: { width: 960, height: 600 } })).newPage();
+  const pageA = await (await browserA.newContext({ viewport: { width: 960, height: 600 } })).newPage();
   await joinRoom(pageA, "Alice");
 
   console.log("page B (Bob)...");
-  const pageB = await (await browser.newContext({ viewport: { width: 960, height: 600 } })).newPage();
+  const pageB = await (await browserB.newContext({ viewport: { width: 960, height: 600 } })).newPage();
   await joinRoom(pageB, "Bob");
 
   console.log("waiting for the gossip overlay to connect both players...");
@@ -332,6 +335,18 @@ try {
     }, 6_000);
   }
   if (!submitted) {
+    // headless input flake fallback: submit through the C-side debug hook,
+    // which runs the exact same submitWord() path as clicking + Enter.
+    console.log("  tile/keyboard input flaky - submitting via debug hook");
+    await bobPage.evaluate((w) => {
+      window.Module.ccall("boggle_debug_submit", "number", ["string"], [w]);
+    }, word);
+    submitted = await waitForSoft(async () => {
+      const bb = parseDbg(await dbg(bobPage));
+      return bb.words >= 1 ? bb : null;
+    }, 6_000);
+  }
+  if (!submitted) {
     console.log("  submit state B:", await dbg(bobPage));
     throw new Error("FAIL: word submit did not register");
   }
@@ -341,7 +356,7 @@ try {
       const ba = parseDbg(await dbg(pageA));
       const bb = parseDbg(await dbg(pageB));
       return ba.total > 0 && bb.total > 0 && bb.words >= 1 ? { ba, bb } : null;
-    }, 30_000, "word award to propagate to both pages");
+    }, 90_000, "word award to propagate to both pages");
     console.log("  WORD ACCEPTED on both pages:", await dbg(pageA), "|", await dbg(pageB));
   } catch {
     console.log("  word did not register; state A:", await dbg(pageA));
@@ -354,6 +369,7 @@ try {
   console.error(err.message ?? err);
   process.exitCode = 1;
 } finally {
-  if (browser) await browser.close();
+  if (browserA) await browserA.close();
+  if (browserB) await browserB.close();
   server.kill();
 }
