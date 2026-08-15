@@ -1,15 +1,15 @@
 # html-boggle
 
-A realtime multiplayer **Boggle** for the browser — rendered with **raylib** (C → WebAssembly
-via emscripten), networked with **iroh gossip** (Rust → WebAssembly), tooled with **mise** and
-**Deno**. No server component: two people entering the same room code land on the same gossip
-channel with nothing but public pkarr relays in between.
+A realtime multiplayer **Boggle** for the web — rendered with **Flutter** (Yaru theme), networked
+with **iroh gossip** (Rust → WebAssembly), tooled with **mise** and **Deno**. No server
+component: two people entering the same room code land on the same gossip channel with nothing
+but public pkarr relays in between.
 
 ```
 +-----------------------------------------------------------------+
 | browser A                          browser B                     |
-|  raylib game (C wasm)              raylib game (C wasm)          |
-|       |  EM_JS                         |  EM_JS                  |
+|  Flutter app (Dart, Yaru UI)       Flutter app (Dart, Yaru UI)  |
+|       |  dart:js_interop               |  dart:js_interop       |
 |  glue.js  <---------------------->  glue.js                      |
 |       |  wasm-bindgen                 |  wasm-bindgen            |
 |  iroh gossip (Rust wasm)   <==gossip==>   iroh gossip (Rust wasm)|
@@ -18,6 +18,14 @@ channel with nothing but public pkarr relays in between.
 |           https://dns.iroh.link/pkarr (public infra)             |
 +-----------------------------------------------------------------+
 ```
+
+## Why Flutter
+
+The game originally shipped on raylib (C + emscripten); Flutter replaced it for first-class
+**mobile and accessibility support**: real text fields summon the native virtual keyboard,
+touch targets follow platform conventions, and the semantics tree gives screen readers and
+tests a real DOM to navigate. The UI is styled with the [Yaru](https://pub.dev/packages/yaru)
+theme and widget suite.
 
 ## The "automatic rigging"
 
@@ -48,17 +56,17 @@ smallest node id seamlessly takes over.
 
 ```sh
 mise trust          # first time only (or `mise trust` on first run prompt)
-mise install        # deno 2, rust 1.96, emsdk 3.1.71, node 26
-mise run setup      # rust wasm target + cached raylib web lib, wasm-bindgen-cli, word list
-mise run build      # iroh wasm module + raylib wasm game -> dist/
+mise install        # deno 2, rust 1.96, flutter 3.47, node 26
+mise run setup      # rust wasm target + vendored build inputs (wasm-bindgen-cli, word list)
+mise run build      # iroh wasm module + flutter web app -> dist/
 mise run dev        # build + watch + serve http://localhost:8000
 mise run test       # e2e: two headless browsers join one room and play a word
 ```
 
-Open http://localhost:8000 in two browser tabs (or two machines — the dev server binds
-`0.0.0.0`), enter the same room code in both, and play. Browsers need internet access for the
-public iroh/pkarr relays. `mise run test` bootstraps playwright-core into `.cache/pw` and needs
-a chromium headless shell (`npx playwright install chromium-headless-shell`).
+Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — the dev
+server binds `0.0.0.0`), enter the same room code in both, and play. Browsers need internet
+access for the public iroh/pkarr relays. `mise run test` bootstraps playwright-core into
+`.cache/pw` and needs a chromium headless shell (`npx playwright install chromium-headless-shell`).
 
 ## Publishing (GitHub Pages)
 
@@ -69,8 +77,8 @@ Pushing to `main` builds the game with [mise-action](https://github.com/jdx/mise
 2. Push to `main`.
 
 The site works from any base path (project pages like `user.github.io/html-boggle/` are fine —
-all asset URLs are relative) and is fully multiplayer: the game has no server component, so
-static hosting loses nothing. There is also a manually-triggered
+the Flutter build gets a relative `<base href>`). Fully multiplayer on static hosting: the game
+has no server component. There is also a manually-triggered
 [`e2e.yml`](.github/workflows/e2e.yml) that runs the full two-browser test in CI.
 
 ## Layout
@@ -78,12 +86,9 @@ static hosting loses nothing. There is also a manually-triggered
 | Path              | What                                                        |
 | ----------------- | ----------------------------------------------------------- |
 | `mise.toml`       | pinned tools + `setup` / `build` / `dev` / `serve` / `test` tasks |
-| `client/main.c`   | the raylib game: lobby, board, input, scoring, host logic   |
-| `client/shell.html`| emscripten shell (letterboxed canvas)                       |
-| `client/jsmn.h`   | vendored [jsmn](https://github.com/zserge/jsmn) JSON parser (MIT) |
+| `app/`            | the Flutter game: Yaru UI, game controller, word validation |
 | `net/`            | Rust crate: iroh 1.0 + iroh-gossip 0.101 → wasm-bindgen, pkarr rendezvous |
-| `glue/glue.js`    | bridge: room→topic/board/key derivations, pkarr discovery, C↔wasm events |
-| `glue/sha256.js`  | vendored [js-sha256](https://github.com/emn178/js-sha256) (MIT) |
+| `glue/glue.js`    | bridge: pkarr discovery, Dart↔iroh event plumbing           |
 | `server/main.ts`  | Deno static file server for `dist/` (dev convenience only)  |
 | `scripts/`        | `setup.ts`, `build.ts`, `dev.ts` (pure Deno), `e2e-web.mjs` (playwright) |
 
@@ -105,7 +110,7 @@ repeats (periodic hellos, claim retries) would otherwise be dropped.
 
 Scoring is classic Boggle: 3–4 letters = 1, 5 = 2, 6 = 3, 7 = 5, 8+ = 11. Rounds are 3
 minutes; scores accumulate, found words reset each round. Word validation uses a public-domain
-word list (dwyl/english-words, filtered to 3–16 letters, sorted and compiled into the wasm).
+word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as an app asset).
 
 ## Notes & limitations
 

@@ -57,6 +57,30 @@ url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
 [tools.emsdk."platforms.windows-x64"]
 url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
 
+[[tools.flutter]]
+version = "3.47.0"
+backend = "http:flutter"
+
+[tools.flutter."platforms.linux-x64"]
+checksum = "blake3:19d1a935c5a9cef6b38dc8dd5afe383ab77a0b0040732819331504c624a66d02"
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.0-stable.tar.xz"
+
+[tools.flutter."platforms.linux-x64-musl"]
+checksum = "sha256:26cd99d3d94b1367e6b50535a18aeef0282c10a535bbe3ec493534dcdab75296"
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.0-stable.tar.xz"
+
+[tools.flutter."platforms.macos-arm64"]
+checksum = "sha256:bd59c85d032a9d81f31ada8c00858bc4f75eded9615b6584390eb13c6ee5083b"
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.0-stable.zip"
+
+[tools.flutter."platforms.macos-x64"]
+checksum = "sha256:74af3192ae4bcbceb6d35f8ed332af16b7ff00af300520b02fbea456ae3e955d"
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_3.47.0-stable.zip"
+
+[tools.flutter."platforms.windows-x64"]
+checksum = "sha256:9f96d393cdfad05bea0b4b42c603ffda027af11adadc8e4cf3ac87e49110c1ca"
+url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.0-stable.zip"
+
 [[tools.node]]
 version = "26.5.0"
 backend = "core:node"

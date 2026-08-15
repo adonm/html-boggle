@@ -1,70 +1,30 @@
 /**
- * glue.js - bridges the raylib game (C/wasm) with iroh gossip (Rust/wasm).
+ * glue.js - bridges the Flutter app with iroh gossip (Rust/wasm).
  * No server component: peer discovery uses the public pkarr relays that iroh
  * itself uses for address lookup.
  *
- * Deterministic derivations, so that anyone entering the same room code ends up
- * on the same gossip channel with the same board and the same rendezvous key:
- *   topic id  = sha256("topic:" + room)   (32 bytes -> iroh gossip TopicId)
- *   board     = sha256("board:" + room)   (16 bytes -> one face per Boggle die)
- *   room key  = keypair(sha256("boggle-room:" + room))  (pkarr rendezvous key)
+ * The Flutter app (Dart) drives this bridge through:
+ *   window.__boggleGlue.join(room, topicHex, name) -> Promise<nodeId>
+ *   window.__boggleGlue.send(json)
+ * and receives events through window.__boggleToFlutter(json), a sink that the
+ * Dart side installs via dart:js_interop.
  *
  * Discovery protocol (serverless):
- *   1. Every player derives the room keypair from the room code.
+ *   1. The Dart side derives the room keypair source from the room code
+ *      (sha256), and the gossip topic id the same way.
  *   2. Everyone periodically PUTs the room's pkarr packet (TXT records holding
  *      the hex node ids of everyone they know to be alive), signed with the
  *      room key, to https://dns.iroh.link/pkarr/<z32(room key)>.
- *   3. Everyone periodically GETs the same packet and dials (over the gossip
- *      ALPN) every id they haven't connected to yet.
+ *   3. Everyone periodically GETs the same packet and asks gossip to connect
+ *      to any new ids.
  *   The member set is a grow-only merge that converges: whoever enters the
  *   room ends up in the same gossip swarm.
- *
- * C side (client/main.c) calls:
- *   window.__boggleGlue.join(room, name)
- *   window.__boggleGlue.send(json)
- *   window.__boggleGlue.now()
- * and receives events through Module.ccall("boggle_on_event", ...).
  */
 
 import init, { BoggleNet } from "./net/boggle_net.js";
 
 const PKARR_RELAY = "https://dns.iroh.link/pkarr/";
 const SYNC_INTERVAL_MS = 5_000;
-
-// Classic 4x4 Boggle dice set (one die carries "Qu").
-const DICE = [
-  "AAEEGN",
-  "ABBJOO",
-  "ACHOPS",
-  "AFFKPS",
-  "AOOTTW",
-  "CIMOTU",
-  "DEILRX",
-  "DELRVY",
-  "DISTTY",
-  "EEGHNW",
-  "EEINSU",
-  "EHRTVW",
-  "EIOSST",
-  "ELRTTY",
-  "HIMNQU",
-  "HLNNRZ",
-];
-
-const sha256 = globalThis.sha256; // vendored js-sha256 (MIT), loaded before this module
-
-function normRoom(room) {
-  return String(room).toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function topicFor(room) {
-  return sha256("topic:" + room); // hex, 64 chars = 32 bytes
-}
-
-function boardFor(room) {
-  const bytes = sha256.array("board:" + room);
-  return DICE.map((die, i) => die[bytes[i] % 6].toLowerCase()).join(",");
-}
 
 function bytesToHex(bytes) {
   let out = "";
@@ -78,15 +38,13 @@ function hexToBytes(hex) {
   return bytes;
 }
 
-function callC(fn, arg) {
-  const M = window.Module;
-  // Never call ccall before the module finished initializing: emscripten's
-  // lazy export wrappers cache the result of the first call.
-  if (M && M.calledRun && M.ccall) {
+function emit(obj) {
+  const f = window.__boggleToFlutter;
+  if (typeof f === "function") {
     try {
-      M.ccall(fn, "number", ["string"], [arg]);
+      f(JSON.stringify(obj));
     } catch (err) {
-      console.error("ccall failed", fn, err);
+      console.error("[boggle] flutter sink failed", err);
     }
   }
 }
@@ -102,51 +60,37 @@ const glue = {
   lastPut: 0, // last pkarr PUT (ms)
   stats: { sent: 0, recv: 0, up: 0, down: 0, byType: {} }, // debug counters
 
-  async join(roomRaw, name) {
-    const room = normRoom(roomRaw);
-    if (!room) {
-      this.fail("Room code must be letters and numbers");
-      return;
-    }
-    try {
-      // Board is deterministic per room: set it before anything else.
-      callC("boggle_set_board", boardFor(room));
+  /** Called by the Flutter app. Resolves with our node id. */
+  async join(room, topicHex, name) {
+    await init();
+    if (!this.net) this.net = await BoggleNet.new();
+    console.log("[boggle] endpoint bound", this.net.node_id());
+    const nodeId = this.net.node_id();
 
-      await init();
-      console.log("[boggle] net wasm initialized");
-      if (!this.net) this.net = await BoggleNet.new();
-      console.log("[boggle] endpoint bound", this.net.node_id());
-      const nodeId = this.net.node_id();
+    this.room = room;
+    this.nodeId = nodeId;
+    this.liveIds = new Set([nodeId]);
+    this.dialedIds = new Set();
 
-      this.room = room;
-      this.nodeId = nodeId;
-      this.liveIds = new Set([nodeId]);
-      this.dialedIds = new Set();
+    // First pkarr round: publish ourselves and fetch existing members so
+    // they can be used as bootstrap peers for the gossip subscription.
+    const known = await this.syncPkarr(room, nodeId, true);
 
-      // First pkarr round: publish ourselves and fetch existing members so
-      // they can be used as bootstrap peers for the gossip subscription.
-      const known = await this.syncPkarr(room, nodeId, true);
+    this.channel = await this.net.join(topicHex, [...known].filter((id) => id !== nodeId));
+    console.log("[boggle] gossip topic joined");
+    this.channel.set_event_handler((evt) => this.handle(evt));
 
-      this.channel = await this.net.join(
-        topicFor(room),
-        [...known].filter((id) => id !== nodeId),
-      );
-      console.log("[boggle] gossip topic joined");
-      this.channel.set_event_handler((evt) => this.handle(evt));
+    clearInterval(this.syncTimer);
+    this.syncTimer = setInterval(() => this.discover(room, nodeId), SYNC_INTERVAL_MS);
 
-      clearInterval(this.syncTimer);
-      this.syncTimer = setInterval(() => this.discover(room, nodeId), SYNC_INTERVAL_MS);
-
-      console.log(`[boggle] joined room "${room}" as ${nodeId}`);
-      callC("boggle_on_event", JSON.stringify({ kind: "joined", room, node: nodeId }));
-    } catch (err) {
-      console.error("[boggle] join failed", err);
-      this.fail("Join failed: " + (err?.message ?? err));
-    }
+    console.log(`[boggle] joined room "${room}" as ${nodeId}`);
+    return nodeId;
   },
 
-  fail(reason) {
-    callC("boggle_on_event", JSON.stringify({ kind: "joinFail", reason: String(reason) }));
+  /** Called by the Flutter app: broadcast a JSON app message. */
+  send(json) {
+    this.stats.sent++;
+    this.channel?.broadcast(json).catch((err) => console.warn("[boggle] send failed", err));
   },
 
   /**
@@ -184,10 +128,7 @@ const glue = {
     try {
       const res = await fetch(url);
       if (res.ok) {
-        const ids = this.net.unpack_room(
-          room,
-          bytesToHex(new Uint8Array(await res.arrayBuffer())),
-        );
+        const ids = this.net.unpack_room(room, bytesToHex(new Uint8Array(await res.arrayBuffer())));
         for (const id of ids) {
           seen.add(id);
           if (id !== nodeId) this.liveIds.add(id);
@@ -234,34 +175,25 @@ const glue = {
         } else if (data.t === "bye") {
           this.liveIds.delete(data.node);
         }
-        callC("boggle_on_event", JSON.stringify(data));
+        emit(data);
       } catch {
         /* ignore malformed payloads */
       }
     } else if (evt.kind === "up") {
       this.stats.up++;
       this.liveIds.add(evt.node);
-      callC("boggle_on_event", evtJson);
+      emit(evt);
     } else if (evt.kind === "down") {
       this.stats.down++;
       this.liveIds.delete(evt.node);
       this.dialedIds.delete(evt.node); // allow re-dialing
-      callC("boggle_on_event", evtJson);
+      emit(evt);
       // Connection lost: kick a discovery round right away so the overlay
       // re-forms as fast as possible.
       if (this.room && this.net) this.discover(this.room, this.nodeId).catch(() => {});
     } else {
-      callC("boggle_on_event", evtJson);
+      emit(evt);
     }
-  },
-
-  send(json) {
-    this.stats.sent++;
-    this.channel?.broadcast(json).catch((err) => console.warn("[boggle] send failed", err));
-  },
-
-  now() {
-    return Date.now();
   },
 };
 

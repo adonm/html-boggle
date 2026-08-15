@@ -1,0 +1,656 @@
+/// Screens: lobby, joining, room, play, results. Styled by the Yaru theme
+/// with semantics labels so screen readers and tests can navigate the game.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:yaru/yaru.dart';
+
+import 'game.dart';
+
+// -------------------------------------------------------------------- home
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String _lastToast = '';
+
+  @override
+  void initState() {
+    super.initState();
+    widget.game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    widget.game.removeListener(_onGame);
+    super.dispose();
+  }
+
+  void _onGame() {
+    final g = widget.game;
+    if (g.toast.isNotEmpty && g.toast != _lastToast) {
+      _lastToast = g.toast;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(g.toast),
+            duration: const Duration(milliseconds: 2200),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final g = widget.game;
+    return AnimatedBuilder(
+      animation: g,
+      builder: (context, _) {
+        final Widget screen = switch (g.phase) {
+          Phase.lobby => LobbyScreen(game: g),
+          Phase.joining => const JoiningScreen(),
+          Phase.room => RoomScreen(game: g),
+          Phase.play => PlayScreen(game: g),
+          Phase.results => ResultsScreen(game: g),
+        };
+        return Scaffold(body: SafeArea(child: screen));
+      },
+    );
+  }
+}
+
+// ------------------------------------------------------------------- lobby
+
+class LobbyScreen extends StatefulWidget {
+  const LobbyScreen({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<LobbyScreen> createState() => _LobbyScreenState();
+}
+
+class _LobbyScreenState extends State<LobbyScreen> {
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _room = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Deep links: /?room=code prefills the room field.
+    final room = Uri.base.queryParameters['room'];
+    if (room != null && room.isNotEmpty) {
+      _room.text = room;
+      widget.game.showToast('Room $room - tap JOIN to enter');
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _room.dispose();
+    super.dispose();
+  }
+
+  void _join() {
+    widget.game.join(roomCode: _room.text, name: _name.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'BOGGLE',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'multiplayer word game · iroh gossip · no servers',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _name,
+                          decoration: const InputDecoration(
+                            labelText: 'Your name',
+                            hintText: 'optional - we can pick one',
+                          ),
+                          textInputAction: TextInputAction.next,
+                          onSubmitted: (_) =>
+                              FocusScope.of(context).nextFocus(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      YaruIconButton(
+                        tooltip: 'Random name',
+                        icon: const Icon(YaruIcons.refresh),
+                        onPressed: () => setState(
+                          () => _name.text = widget.game.randomName(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _room,
+                    decoration: const InputDecoration(
+                      labelText: 'Room code',
+                      hintText: 'same code = same game',
+                    ),
+                    textInputAction: TextInputAction.go,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    onSubmitted: (_) => _join(),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: _join,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text('JOIN ROOM'),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Anyone entering the same room code lands on the same '
+                    'gossip channel. Share the link from the room view.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- joining
+
+class JoiningScreen extends StatelessWidget {
+  const JoiningScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 24),
+          Text('Joining room...'),
+          SizedBox(height: 8),
+          Text('connecting peers through iroh gossip'),
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------------- room
+
+class RoomScreen extends StatelessWidget {
+  const RoomScreen({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'ROOM  ${g.room}',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'players who enter this code join the same game',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final p in g.players)
+                        ListTile(
+                          dense: true,
+                          leading: Icon(
+                            p.isMe ? Icons.person : Icons.person_outline,
+                            color: p.isMe
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                          title: Text(
+                            (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
+                                (p.id == g.hostId ? '  · HOST' : ''),
+                          ),
+                          trailing: Text('${p.score} pts'),
+                        ),
+                      Text(
+                        '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (g.isHost)
+                FilledButton(
+                  onPressed: g.startRound,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('START ROUND'),
+                )
+              else
+                const Text(
+                  'waiting for the host to start...',
+                  textAlign: TextAlign.center,
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final url = Uri.base
+                      .replace(queryParameters: {'room': g.room}, fragment: '')
+                      .toString();
+                  await Clipboard.setData(ClipboardData(text: url));
+                  g.showToast('Link copied - share it!');
+                },
+                icon: const Icon(YaruIcons.insert_link),
+                label: const Text('SHARE LINK'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------------------- play
+
+class PlayScreen extends StatelessWidget {
+  const PlayScreen({super.key, required this.game});
+
+  final Game game;
+
+  String _fmt(int ms) {
+    final s = (ms / 1000).ceil();
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final remaining = g.remainingMs();
+    final urgent = remaining < 10000;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text('ROOM ${g.room} · ROUND ${g.round}',
+                  style: theme.textTheme.titleMedium),
+              const Spacer(),
+              Text(
+                _fmt(remaining),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(
+            value: remaining / roundMs,
+            minHeight: 6,
+            color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    children: [
+                      Expanded(child: _buildBoard(theme, g)),
+                      const SizedBox(height: 12),
+                      Text(
+                        g.currentWord.isEmpty
+                            ? 'tap tiles to spell a word'
+                            : g.currentWord.toUpperCase(),
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: g.currentWord.isEmpty
+                              ? theme.colorScheme.onSurfaceVariant
+                              : theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 3,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: g.currentWord.length >= 3 ? g.submitWord : null,
+                            icon: const Icon(YaruIcons.go_next),
+                            label: const Text('SUBMIT'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: g.path.isEmpty ? null : g.popTile,
+                            icon: const Icon(YaruIcons.go_previous),
+                            label: const Text('UNDO'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: g.path.isEmpty ? null : g.clearPath,
+                            icon: const Icon(YaruIcons.edit_clear),
+                            label: const Text('CLEAR'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(width: 240, child: _buildPlayers(theme, g)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBoard(ThemeData theme, Game g) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tile = (constraints.maxWidth - 3 * 8) / 4;
+        return GridView.count(
+          crossAxisCount: 4,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            for (var i = 0; i < 16; i++)
+              _tile(theme, g, i, tile),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _tile(ThemeData theme, Game g, int i, double size) {
+    final order = g.path.indexOf(i);
+    final selected = order >= 0;
+    final letter = g.board.isEmpty ? '' : g.board[i].toUpperCase();
+    return Semantics(
+      label: 'Tile ${i + 1} letter $letter',
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected
+            ? theme.colorScheme.primary
+            : theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => g.tapTile(i),
+          child: SizedBox.expand(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  letter,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    color: selected
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (selected)
+                  Text(
+                    '${order + 1}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onPrimary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayers(ThemeData theme, Game g) {
+    final me = g.me;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('PLAYERS', style: theme.textTheme.labelMedium),
+            const SizedBox(height: 8),
+            for (final p in g.players)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? '...' : p.name)) +
+                            (p.id == g.hostId ? ' · HOST' : ''),
+                        overflow: TextOverflow.ellipsis,
+                        style: p.isMe
+                            ? TextStyle(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              )
+                            : null,
+                      ),
+                    ),
+                    Text(
+                      '${p.score}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(),
+            Text(
+              'YOUR WORDS (${me?.words.length ?? 0})',
+              style: theme.textTheme.labelMedium,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: me == null
+                  ? const SizedBox.shrink()
+                  : Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final w in me.words.toList().reversed)
+                          Chip(
+                            label: Text(w.toUpperCase()),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- results
+
+class ResultsScreen extends StatelessWidget {
+  const ResultsScreen({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final ranked = [...g.players]
+      ..sort((a, b) => b.score.compareTo(a.score));
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'ROUND ${g.round} OVER',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < ranked.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 32,
+                                child: Text(
+                                  '${i + 1}.',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${ranked[i].name}${ranked[i].isMe ? ' (you)' : ''}',
+                                      style: ranked[i].isMe
+                                          ? TextStyle(
+                                              color: theme.colorScheme.primary,
+                                              fontWeight: FontWeight.bold,
+                                            )
+                                          : theme.textTheme.titleMedium,
+                                    ),
+                                    if (ranked[i].words.isNotEmpty)
+                                      Text(
+                                        ranked[i].words.map((w) => w.toUpperCase()).join(', '),
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '${ranked[i].score} pts',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (g.isHost)
+                FilledButton(
+                  onPressed: g.startRound,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('NEXT ROUND'),
+                )
+              else
+                const Text(
+                  'waiting for the host...',
+                  textAlign: TextAlign.center,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

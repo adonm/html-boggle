@@ -1,13 +1,13 @@
 [tools]
 deno = "2"
 rust = "1.96"
-emsdk = "3.1.71"
 node = "26"
+flutter = "3.47.0"
 
 [tasks]
-# One-time setup: rust wasm target + fetch vendored build inputs (raylib web lib, wasm-bindgen-cli, word list, jsmn).
+# One-time setup: rust wasm target + fetch vendored build inputs (wasm-bindgen-cli, word list).
 setup = "rustup target add wasm32-unknown-unknown && deno run -A scripts/setup.ts"
-# Build the iroh wasm module, the raylib wasm game, and assemble dist/.
+# Build the iroh wasm module, the Flutter web app, and assemble dist/.
 build = "deno run -A scripts/build.ts"
 # Rebuild on source change and serve at http://localhost:8000
 dev = "deno run -A scripts/dev.ts"

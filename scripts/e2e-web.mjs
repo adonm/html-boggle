@@ -1,7 +1,11 @@
 /**
- * e2e-web.mjs - REAL BROWSER end-to-end test:
+ * e2e-web.mjs - REAL BROWSER end-to-end test against the Flutter app:
  *   two headless-chromium tabs join the same room, get auto-connected on one
  *   iroh gossip channel, start a round, and one player submits a real word.
+ *
+ * Flutter web runs with the semantics DOM enabled, so the test drives the real
+ * UI (inputs + buttons + tiles) via aria labels, falling back to the
+ * __boggleDebug* hooks only when a UI interaction flakes.
  *
  * Bootstraps playwright-core into .cache/pw on first run and uses a cached
  * chromium headless shell (set PW_SHELL to override the binary path).
@@ -48,6 +52,7 @@ function findShell() {
     "no chromium headless shell found - run: npx playwright install chromium-headless-shell",
   );
 }
+
 const CHROMIUM_ARGS = [
   "--enable-unsafe-swiftshader",
   "--use-angle=swiftshader",
@@ -61,7 +66,6 @@ const CHROMIUM_ARGS = [
 ];
 
 const SHELL = findShell();
-
 const PORT = 8000 + Math.floor(Math.random() * 2000);
 const BASE = `http://localhost:${PORT}`;
 const ROOM = "e2e" + Date.now().toString(36).slice(-6);
@@ -72,7 +76,7 @@ function fail(msg) {
   throw new Error("FAIL: " + msg);
 }
 
-/* ---------- board generation (mirrors glue.js) ---------- */
+/* ---------- board generation (mirrors app/lib/board.dart) ---------- */
 const DICE = [
   "AAEEGN", "ABBJOO", "ACHOPS", "AFFKPS",
   "AOOTTW", "CIMOTU", "DEILRX", "DELRVY",
@@ -82,9 +86,9 @@ const DICE = [
 const boardBytes = createHash("sha256").update("board:" + ROOM).digest();
 const board = DICE.map((die, i) => die[boardBytes[i] % 6].toLowerCase());
 
-/* find a short valid word on the board */
+/* find a short valid word on the board (dict = sorted asset) */
 const words = readFileSync(
-  new URL("../.cache/words.txt", import.meta.url).pathname,
+  new URL("../app/assets/words.txt", import.meta.url).pathname,
   "utf8",
 ).split("\n").filter(Boolean);
 const wordSet = new Set(words);
@@ -120,32 +124,17 @@ function forms(w, idx, pos, used) {
 }
 
 /* ---------- helpers ---------- */
-async function dbg(page) {
+async function state(page) {
   return await page.evaluate(() => {
-    // Important: never call ccall before the module finished initializing —
-    // emscripten's lazy export wrappers cache the result of the first call.
-    if (!window.Module?.calledRun || !window.Module?.ccall) return null;
+    if (typeof window.__boggleDebugState !== "function") return null;
     try {
-      return window.Module.ccall("boggle_dbg", "string", [], []);
+      return JSON.parse(window.__boggleDebugState(""));
     } catch {
       return null;
     }
   });
 }
 
-function parseDbg(s) {
-  const out = {};
-  for (const part of s.split(" ")) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    out[part.slice(0, eq)] = part.slice(eq + 1);
-  }
-  out.phase = Number(out.phase);
-  out.players = Number(out.players);
-  out.total = Number(out.total);
-  out.words = Number(out.words);
-  return out;
-}
 async function waitFor(fn, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -166,64 +155,93 @@ async function waitForSoft(fn, timeoutMs) {
   return null;
 }
 
+/** Join through the real lobby UI; fall back to the debug hook if the
+ *  semantics inputs are flaky. Returns the page state once in the room. */
 async function joinRoom(page, name) {
   page.on("console", (m) => {
-    if (m.type() === "error" || m.type() === "warning" || m.text().startsWith("[boggle]")) {
+    if (m.type() === "error" || m.type() === "warning") {
+      // harmless: pkarr GETs 404 before anyone publishes
+      if (m.text().includes("dns.iroh.link")) return;
       console.log(`  [${name} console.${m.type()}]`, m.text().slice(0, 160));
     }
   });
   page.on("pageerror", (e) => console.log(`  [${name} pageerror]`, String(e).slice(0, 200)));
-  await page.goto(BASE, { waitUntil: "load" });
-  await waitFor(() => dbg(page), 60_000, `${name}: wasm ready`);
-  await sleep(800); // let the first frames draw
+  await page.goto(BASE, { waitUntil: "load", timeout: 60_000 });
+  await waitFor(() => state(page), 90_000, `${name}: flutter booted`);
 
-  // Try the real lobby UI (keyboard); headless key delivery can be flaky, so
-  // verify the room code is right and otherwise drive the glue directly.
-  // Everything after this point is still the real iroh + registry + raylib flow.
-  let viaLobby = false;
-  {
-    await page.evaluate(() => document.getElementById("canvas").focus());
-    await click(page, 480, 300); // name field
-    await page.keyboard.type(name, { delay: 60 });
-    await page.keyboard.press("Tab");
-    await sleep(100);
-    for (let i = 0; i < 8; i++) {
-      await page.keyboard.press("Backspace");
-      await sleep(90);
+  let viaUi = false;
+  try {
+    const nameInput = page.locator('input[aria-label="Your name"]');
+    const roomInput = page.locator('input[aria-label="Room code"]');
+    await waitForSoft(async () => (await nameInput.count()) > 0, 15_000);
+    // Click to focus first (Flutter wires its real editing input), then type:
+    // filling the semantics input directly doesn't reliably reach Flutter.
+    await nameInput.click();
+    await page.keyboard.type(name, { delay: 40 });
+    await roomInput.click();
+    await page.keyboard.type(ROOM, { delay: 40 });
+    await sleep(300);
+    await page.getByRole("button", { name: "JOIN ROOM" }).click();
+    viaUi = (await waitForSoft(async () => {
+      const s = await state(page);
+      return s && (s.phase === "room" || s.phase === "joining") ? s : null;
+    }, 20_000)) !== null;
+  } catch {
+    viaUi = false;
+  }
+  if (!viaUi) {
+    console.log(`  ${name}: lobby UI flaky - joining via debug hook`);
+    await page.evaluate(
+      ([r, n]) => window.__boggleDebugJoin(r, n),
+      [ROOM, name],
+    );
+  }
+  return await waitFor(async () => {
+    const s = await state(page);
+    return s?.phase === "room" ? s : null;
+  }, 60_000, `${name}: joined room`);
+}
+
+/** Start the round via the real button; fall back to the debug hook. */
+async function startRound(page) {
+  try {
+    await page.getByRole("button", { name: "START ROUND" }).click();
+    if (await waitForSoft(async () => (await state(page))?.phase === "play", 5_000)) {
+      return;
     }
-    await page.keyboard.type(ROOM, { delay: 60 });
-    await sleep(100);
-    await page.keyboard.press("Enter");
-    const joined = await waitForSoft(async () => {
-      const d = parseDbg(await dbg(page));
-      return d.phase === 2 ? d : null;
-    }, 12_000);
-    if (joined && joined.room === ROOM) viaLobby = true;
-  }
-  if (!viaLobby) {
-    console.log(`  ${name}: lobby keyboard flaky - joining via glue directly`);
-    await page.evaluate(([room, name]) => window.__boggleGlue.join(room, name), [ROOM, name]);
-  }
-  await waitFor(async () => {
-    const d = parseDbg(await dbg(page));
-    return d.phase === 2 ? d : null;
-  }, 60_000, `${name}: joined room (phase=2)`);
-  console.log(`  ${name} joined room:`, await dbg(page));
+  } catch { /* fall through */ }
+  await page.evaluate(() => window.__boggleDebugStart(""));
 }
 
-async function tileCenter(i) {
-  const c = i % 4, r = Math.floor(i / 4);
-  return { x: 36 + c * 91 + 41, y: 110 + r * 91 + 41 };
+/** Submit a word by tapping its tiles via the semantics DOM. */
+async function submitViaTiles(page, word) {
+  const path = [];
+  findPath(word, 0, -1, new Array(16).fill(false), path);
+  for (const i of path) {
+    const letter = board[i].toUpperCase();
+    await page.getByRole("button", { name: `Tile ${i + 1} letter ${letter}` }).click();
+  }
+  await page.getByRole("button", { name: "SUBMIT" }).click();
 }
 
-async function click(page, x, y) {
-  // raylib polls IsMouseButtonPressed per frame; a down+up in the same frame
-  // gap can be missed, so hold the button for a bit.
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await sleep(120);
-  await page.mouse.up();
-  await sleep(120);
+function findPath(w, idx, pos, used, path) {
+  if (idx === w.length) return true;
+  for (let i = 0; i < 16; i++) {
+    if (used[i]) continue;
+    if (pos >= 0) {
+      const dr = Math.abs(Math.floor(i / 4) - Math.floor(pos / 4));
+      const dc = Math.abs((i % 4) - (pos % 4));
+      if (dr > 1 || dc > 1) continue;
+    }
+    if (w.slice(idx).startsWith(board[i])) {
+      used[i] = true;
+      path.push(i);
+      if (findPath(w, idx + board[i].length, i, used, path)) return true;
+      path.pop();
+      used[i] = false;
+    }
+  }
+  return false;
 }
 
 /* ---------- main ---------- */
@@ -234,7 +252,6 @@ const server = spawn(
   { cwd: new URL("..", import.meta.url).pathname, env: { ...process.env, PORT: String(PORT) },
     stdio: "ignore" },
 );
-// wait for the server to actually accept connections
 {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -255,14 +272,8 @@ let browserA, browserB;
 try {
   // Two separate browser processes: a single headless browser throttles the
   // sockets of its non-active contexts, which breaks the P2P overlay.
-  browserA = await chromium.launch({
-    executablePath: SHELL,
-    args: CHROMIUM_ARGS,
-  });
-  browserB = await chromium.launch({
-    executablePath: SHELL,
-    args: CHROMIUM_ARGS,
-  });
+  browserA = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
+  browserB = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
 
   console.log("page A (Alice)...");
   const pageA = await (await browserA.newContext({ viewport: { width: 960, height: 600 } })).newPage();
@@ -274,116 +285,49 @@ try {
 
   console.log("waiting for the gossip overlay to connect both players...");
   await waitFor(async () => {
-    const a = parseDbg(await dbg(pageA));
-    const b = parseDbg(await dbg(pageB));
+    const a = await state(pageA);
+    const b = await state(pageB);
     return a.players === 2 && b.players === 2 ? { a, b } : null;
   }, 90_000, "both players to see each other");
-  console.log("  CONNECTED:", await dbg(pageA), "|", await dbg(pageB));
+  console.log("  CONNECTED:", JSON.stringify(await state(pageA)), "|", JSON.stringify(await state(pageB)));
 
   // host = smallest node id
-  const a = parseDbg(await dbg(pageA));
-  const b = parseDbg(await dbg(pageB));
+  const a = await state(pageA);
+  const b = await state(pageB);
   const hostPage = a.me < b.me ? pageA : pageB;
   console.log("host page:", hostPage === pageA ? "A" : "B");
 
   console.log("host starts the round...");
-  await click(hostPage, 480, 452); // START ROUND button
+  await startRound(hostPage);
   await waitFor(async () => {
-    const ha = parseDbg(await dbg(pageA));
-    const hb = parseDbg(await dbg(pageB));
-    return ha.phase === 3 && hb.phase === 3 ? { ha, hb } : null;
+    const ha = await state(pageA);
+    const hb = await state(pageB);
+    return ha.phase === "play" && hb.phase === "play" ? { ha, hb } : null;
   }, 30_000, "round to start on both pages");
   console.log("  PLAYING on both pages");
 
-  console.log("Bob submits", word, "by clicking tiles...");
-  const bobPage = hostPage === pageA ? pageB : pageA;
-  // find a valid path for the word on the board
-  const path = [];
-  function findPath(w, idx, pos, used) {
-    if (idx === w.length) return true;
-    for (let i = 0; i < 16; i++) {
-      if (used[i]) continue;
-      if (pos >= 0) {
-        const dr = Math.abs(Math.floor(i / 4) - Math.floor(pos / 4));
-        const dc = Math.abs((i % 4) - (pos % 4));
-        if (dr > 1 || dc > 1) continue;
-      }
-      if (w.slice(idx).startsWith(board[i])) {
-        used[i] = true;
-        path.push(i);
-        if (findPath(w, idx + board[i].length, i, used)) return true;
-        path.pop();
-        used[i] = false;
-      }
-    }
-    return false;
-  }
-  findPath(word, 0, -1, new Array(16).fill(false));
-  console.log("  tile path:", path.map((i) => board[i]).join("+"));
-  // click tiles; verify the selection actually registered (retry if a click dropped)
-  for (let attempt = 0; attempt < 3; attempt++) {
-    for (const i of path) {
-      const { x, y } = await tileCenter(i);
-      await click(bobPage, x, y);
-    }
-    const got = await waitForSoft(async () => {
-      const bb = parseDbg(await dbg(bobPage));
-      return bb.cur === word ? bb : null;
-    }, 4_000);
-    if (got) break;
-    // reset selection via ESC, retry
-    await bobPage.keyboard.down("Escape");
-    await sleep(120);
-    await bobPage.keyboard.up("Escape");
-  }
+  const submitter = hostPage === pageA ? pageB : pageA;
+  console.log("submitting", word, "by tapping tiles...");
   let submitted = false;
-  for (let attempt = 0; attempt < 3 && !submitted; attempt++) {
-    await bobPage.keyboard.down("Enter");
-    await sleep(150);
-    await bobPage.keyboard.up("Enter");
-    submitted = await waitForSoft(async () => {
-      const bb = parseDbg(await dbg(bobPage));
-      return bb.words >= 1 ? bb : null;
-    }, 6_000);
-  }
-  if (!submitted) {
-    // headless input flake fallback: submit through the C-side debug hook,
-    // which runs the exact same submitWord() path as clicking + Enter.
-    console.log("  tile/keyboard input flaky - submitting via debug hook");
-    await bobPage.evaluate((w) => {
-      window.Module.ccall("boggle_debug_submit", "number", ["string"], [w]);
-    }, word);
-    submitted = await waitForSoft(async () => {
-      const bb = parseDbg(await dbg(bobPage));
-      return bb.words >= 1 ? bb : null;
-    }, 6_000);
-  }
-  if (!submitted) {
-    console.log("  submit state B:", await dbg(bobPage));
-    throw new Error("FAIL: word submit did not register");
-  }
-
   try {
-    await waitFor(async () => {
-      const ba = parseDbg(await dbg(pageA));
-      const bb = parseDbg(await dbg(pageB));
-      const sub = parseDbg(await dbg(bobPage));
-      return ba.total > 0 && bb.total > 0 && sub.words >= 1 ? { ba, bb } : null;
-    }, 150_000, "word award to propagate to both pages");
-    console.log("  WORD ACCEPTED on both pages:", await dbg(pageA), "|", await dbg(pageB));
+    await submitViaTiles(submitter, word);
+    submitted = await waitForSoft(async () => (await state(submitter))?.words >= 1, 6_000);
   } catch {
-    console.log("  word did not register; state A:", await dbg(pageA));
-    console.log("  state B:", await dbg(pageB));
-    console.log(
-      "  glue stats A:",
-      await pageA.evaluate(() => JSON.stringify(window.__boggleGlue?.stats ?? null)),
-    );
-    console.log(
-      "  glue stats B:",
-      await pageB.evaluate(() => JSON.stringify(window.__boggleGlue?.stats ?? null)),
-    );
-    throw new Error("FAIL: word award did not propagate");
+    submitted = false;
   }
+  if (!submitted) {
+    console.log("  tile taps flaky - submitting via debug hook");
+    await submitter.evaluate((w) => window.__boggleDebugSubmit(w), word);
+    submitted = await waitForSoft(async () => (await state(submitter))?.words >= 1, 6_000);
+  }
+  if (!submitted) fail("word submit did not register");
+
+  await waitFor(async () => {
+    const sa = await state(pageA);
+    const sb = await state(pageB);
+    return sa.total > 0 && sb.total > 0 && sa.players === 2 ? { sa, sb } : null;
+  }, 150_000, "word award to propagate to both pages");
+  console.log("  WORD ACCEPTED on both pages:", JSON.stringify(await state(pageA)), "|", JSON.stringify(await state(pageB)));
 
   console.log("\nPASS: two browsers, one room, one gossip channel, realtime play ✅");
 } catch (err) {

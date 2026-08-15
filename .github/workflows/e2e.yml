@@ -26,8 +26,10 @@ jobs:
             ~/.cache/ms-playwright
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.pub-cache
             net/target
-          key: e2e-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'mise.toml') }}
+            app/build
+          key: e2e-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'app/pubspec.lock', 'mise.toml') }}
           restore-keys: |
             e2e-${{ runner.os }}-
 

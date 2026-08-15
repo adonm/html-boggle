@@ -36,7 +36,7 @@ async function scheduleRebuild(path: string) {
   }, 300);
 }
 
-const watchers = ["client", "glue", "net/src"].map((dir) => ({
+const watchers = ["glue", "net/src", "app/lib", "app/web", "app/assets"].map((dir) => ({
   dir,
   watcher: Deno.watchFs(new URL(`../${dir}/`, import.meta.url).pathname, { recursive: true }),
 }));

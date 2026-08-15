@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Installs the tools pinned in mise.toml (deno, rust, emsdk, node) and
+      # Installs the tools pinned in mise.toml (deno, rust, flutter, node) and
       # puts them on PATH for all following steps.
       - uses: jdx/mise-action@v4
         with:
@@ -33,8 +33,10 @@ jobs:
             .cache
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.pub-cache
             net/target
-          key: build-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'mise.toml') }}
+            app/build
+          key: build-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'app/pubspec.lock', 'mise.toml') }}
           restore-keys: |
             build-${{ runner.os }}-
 

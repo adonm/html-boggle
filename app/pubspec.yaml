@@ -1,0 +1,22 @@
+name: boggle_app
+description: "Multiplayer Boggle over iroh gossip, styled with Yaru."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.6
+  yaru: ^10.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/words.txt
