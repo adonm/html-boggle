@@ -32,7 +32,7 @@ function findSig(data: Uint8Array, sig: number[], from: number): number {
 
 async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream("deflate-raw");
-  const stream = new Blob([compressed]).stream().pipeThrough(ds);
+  const stream = new Blob([new Uint8Array(compressed)]).stream().pipeThrough(ds);
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -84,7 +84,7 @@ async function extractZip(data: Uint8Array, outDir: URL): Promise<void> {
 
 async function extractTarGz(data: Uint8Array, outDir: URL, pick: (name: string) => boolean): Promise<void> {
   const ds = new DecompressionStream("gzip");
-  const stream = new Blob([data]).stream().pipeThrough(ds);
+  const stream = new Blob([new Uint8Array(data)]).stream().pipeThrough(ds);
   const tar = new Uint8Array(await new Response(stream).arrayBuffer());
   let off = 0;
   while (off + 512 <= tar.length) {

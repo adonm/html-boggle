@@ -18,7 +18,7 @@ const server = new Deno.Command("deno", {
 
 const proc = server.spawn();
 
-let timer: number | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined;
 let building = false;
 
 async function scheduleRebuild(path: string) {
