@@ -18,10 +18,22 @@ import init, { BoggleNet } from "./net/boggle_net.js";
 
 // Classic 4x4 Boggle dice set (one die carries "Qu").
 const DICE = [
-  "AAEEGN", "ABBJOO", "ACHOPS", "AFFKPS",
-  "AOOTTW", "CIMOTU", "DEILRX", "DELRVY",
-  "DISTTY", "EEGHNW", "EEINSU", "EHRTVW",
-  "EIOSST", "ELRTTY", "HIMNQU", "HLNNRZ",
+  "AAEEGN",
+  "ABBJOO",
+  "ACHOPS",
+  "AFFKPS",
+  "AOOTTW",
+  "CIMOTU",
+  "DEILRX",
+  "DELRVY",
+  "DISTTY",
+  "EEGHNW",
+  "EEINSU",
+  "EHRTVW",
+  "EIOSST",
+  "ELRTTY",
+  "HIMNQU",
+  "HLNNRZ",
 ];
 
 const sha256 = globalThis.sha256; // vendored js-sha256 (MIT), loaded before this module

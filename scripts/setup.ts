@@ -82,7 +82,11 @@ async function extractZip(data: Uint8Array, outDir: URL): Promise<void> {
 
 /* ------------------------ minimal tar.gz extraction ------------------------ */
 
-async function extractTarGz(data: Uint8Array, outDir: URL, pick: (name: string) => boolean): Promise<void> {
+async function extractTarGz(
+  data: Uint8Array,
+  outDir: URL,
+  pick: (name: string) => boolean,
+): Promise<void> {
   const ds = new DecompressionStream("gzip");
   const stream = new Blob([new Uint8Array(data)]).stream().pipeThrough(ds);
   const tar = new Uint8Array(await new Response(stream).arrayBuffer());
@@ -92,7 +96,10 @@ async function extractTarGz(data: Uint8Array, outDir: URL, pick: (name: string) 
     const name = new TextDecoder().decode(
       tar.subarray(off, off + 100),
     ).replace(/\0.*$/, "");
-    const sizeStr = new TextDecoder().decode(tar.subarray(off + 124, off + 136)).replace(/\0.*$/, "");
+    const sizeStr = new TextDecoder().decode(tar.subarray(off + 124, off + 136)).replace(
+      /\0.*$/,
+      "",
+    );
     const size = parseInt(sizeStr, 8);
     const dataStart = off + 512;
     if (name && size > 0 && pick(name)) {
@@ -138,8 +145,11 @@ async function ensureWasmBindgen(): Promise<void> {
     `https://github.com/rustwasm/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/` +
     `wasm-bindgen-${WASM_BINDGEN_VERSION}-${target}.tar.gz`;
   const tarball = await download(url);
-  await extractTarGz(tarball, new URL("bin/", CACHE), (name) =>
-    name.endsWith("/wasm-bindgen") || name.endsWith("/wasm-bindgen.exe"));
+  await extractTarGz(
+    tarball,
+    new URL("bin/", CACHE),
+    (name) => name.endsWith("/wasm-bindgen") || name.endsWith("/wasm-bindgen.exe"),
+  );
   await Deno.chmod(bin, 0o755);
   console.log("wasm-bindgen ready at", bin.pathname);
 }
@@ -156,7 +166,9 @@ async function ensureWords(): Promise<void> {
     .map((w) => w.trimEnd())
     .filter((w) => /^[a-z]{3,16}$/.test(w));
   await Deno.writeFile(out, new TextEncoder().encode(lines.join("\n") + "\n"));
-  console.log(`words.txt ready: ${lines.length} words (${lines.join("").length / 1024 / 1024} MB text)`);
+  console.log(
+    `words.txt ready: ${lines.length} words (${lines.join("").length / 1024 / 1024} MB text)`,
+  );
 }
 
 async function exists(path: URL): Promise<boolean> {

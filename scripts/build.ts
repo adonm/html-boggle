@@ -30,22 +30,40 @@ async function optionalRun(cmd: string[], cwd: URL = ROOT): Promise<void> {
 }
 
 async function buildNet(): Promise<void> {
-  await run(["cargo", "build", "--release", "--target", "wasm32-unknown-unknown",
-    "--manifest-path", "net/Cargo.toml"]);
+  await run([
+    "cargo",
+    "build",
+    "--release",
+    "--target",
+    "wasm32-unknown-unknown",
+    "--manifest-path",
+    "net/Cargo.toml",
+  ]);
   await Deno.mkdir(new URL("net/", DIST), { recursive: true });
-  await run([new URL("../.cache/bin/wasm-bindgen", import.meta.url).pathname,
-    "--target", "web", "--out-dir", new URL("net/", DIST).pathname,
-    "net/target/wasm32-unknown-unknown/release/boggle_net.wasm"]);
+  await run([
+    new URL("../.cache/bin/wasm-bindgen", import.meta.url).pathname,
+    "--target",
+    "web",
+    "--out-dir",
+    new URL("net/", DIST).pathname,
+    "net/target/wasm32-unknown-unknown/release/boggle_net.wasm",
+  ]);
   // Shrink with binaryen (ships with emsdk); non-fatal if unavailable.
-  await optionalRun(["wasm-opt", "-O2", "--enable-bulk-memory",
-    new URL("net/boggle_net_bg.wasm", DIST).pathname, "-o",
-    new URL("net/boggle_net_bg.wasm", DIST).pathname]);
+  await optionalRun([
+    "wasm-opt",
+    "-O2",
+    "--enable-bulk-memory",
+    new URL("net/boggle_net_bg.wasm", DIST).pathname,
+    "-o",
+    new URL("net/boggle_net_bg.wasm", DIST).pathname,
+  ]);
 }
 
 async function buildClient(): Promise<void> {
   await run([
     "emcc",
-    "-o", new URL("index.html", DIST).pathname,
+    "-o",
+    new URL("index.html", DIST).pathname,
     "client/main.c",
     new URL("lib/libraylib.a", RAYLIB).pathname,
     `-I${new URL("include", RAYLIB).pathname}`,
@@ -59,8 +77,10 @@ async function buildClient(): Promise<void> {
     "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString",
     "-sEXPORTED_FUNCTIONS=_main,_boggle_on_event,_boggle_set_board,_boggle_dbg",
     "-sENVIRONMENT=web",
-    "--embed-file", ".cache/words.txt@/words.txt",
-    "--shell-file", "client/shell.html",
+    "--embed-file",
+    ".cache/words.txt@/words.txt",
+    "--shell-file",
+    "client/shell.html",
     "-O2",
     "-Wall",
   ]);
