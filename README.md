@@ -24,8 +24,11 @@ but public pkarr relays in between.
 The game originally shipped on raylib (C + emscripten); Flutter replaced it for first-class
 **mobile and accessibility support**: real text fields summon the native virtual keyboard,
 touch targets follow platform conventions, and the semantics tree gives screen readers and
-tests a real DOM to navigate. The UI is styled with the [Yaru](https://pub.dev/packages/yaru)
-theme and widget suite.
+tests a real DOM to navigate. The UI uses the native [Yaru](https://pub.dev/packages/yaru)
+themes (Ubuntu's design system) with the full accent-color palette: pick any Yaru accent and
+dark/light from the lobby or the theme menu, and the choice persists across visits. Layouts
+adapt to phone-sized screens (stacked board, scrollable panels), and browser touch zoom is
+disabled so pinches and double-taps never resize the game.
 
 ## The "automatic rigging"
 

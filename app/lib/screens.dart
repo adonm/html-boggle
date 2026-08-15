@@ -292,6 +292,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       Expanded(
                         child: TextField(
                           controller: _name,
+                          // iOS Safari auto-zooms into focused inputs smaller
+                          // than 16px; keep the field text at 16px.
+                          style: const TextStyle(fontSize: 16),
                           decoration: const InputDecoration(
                             labelText: 'Your name',
                             hintText: 'optional - we can pick one',
@@ -314,6 +317,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _room,
+                    style: const TextStyle(fontSize: 16),
                     decoration: const InputDecoration(
                       labelText: 'Room code',
                       hintText: 'same code = same game',
