@@ -1,6 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <!--
+    Resolve all relative URLs (flutter_bootstrap.js, glue.js, canvaskit, ...)
+    against the directory this page is actually served from. flutter build
+    hardcodes a static <base href> (usually "/"), which breaks GitHub Pages
+    project pages served from a subpath - so we insert the REAL base first;
+    the first <base> element in a document wins.
+  -->
+  <script>
+    (function () {
+      var base = document.createElement("base");
+      base.href = new URL(".", document.currentScript.src).href;
+      document.head.appendChild(base);
+    })();
+  </script>
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
@@ -25,7 +39,7 @@
       margin: 0;
       padding: 0;
       height: 100%;
-      background: #2d2d2d;
+      background: #242424;
       overflow: hidden;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
