@@ -304,6 +304,20 @@ try {
   }, 90_000, "both players to see each other");
   console.log("  CONNECTED:", JSON.stringify(await state(pageA)), "|", JSON.stringify(await state(pageB)));
 
+  // room chat over the same gossip channel
+  console.log("exchanging a chat message...");
+  const chatInput = pageA.locator('input[aria-label*="Chat message"]');
+  await waitForSoft(async () => (await chatInput.count()) > 0, 15_000);
+  await chatInput.click();
+  await sleep(300);
+  await pageA.keyboard.type("hello world", { delay: 30 });
+  await pageA.keyboard.press("Enter");
+  await waitFor(async () => {
+    const sb = await state(pageB);
+    return sb.lastChat?.includes("world") ? sb : null;
+  }, 30_000, "chat message to reach Bob");
+  console.log("  CHAT delivered:", (await state(pageB)).lastChat);
+
   // host = smallest node id
   const a = await state(pageA);
   const b = await state(pageB);

@@ -45,6 +45,16 @@ const List<String> randomNames = [
   'Turbo', 'Sunny', 'Rascal', 'Comet', 'Whiz', 'Nimbus', 'Biscuit', 'Echo',
 ];
 
+/// A room chat message.
+class ChatMessage {
+  ChatMessage({required this.name, required this.text, required this.fromMe});
+
+  final String name;
+  final String text;
+  final bool fromMe;
+  final DateTime at = DateTime.now();
+}
+
 class Game extends ChangeNotifier {
   final NetBridge net = NetBridge.instance;
   final Random _rng = Random();
@@ -66,6 +76,7 @@ class Game extends ChangeNotifier {
   DateTime? toastUntil;
   DateTime? lastHello;
   DateTime? lastState;
+  final List<ChatMessage> chat = [];
   Timer? _ticker;
   StreamSubscription? _eventsSub;
   int _seq = 0;
@@ -149,6 +160,23 @@ class Game extends ChangeNotifier {
 
   void sendReject(String word, String node, String reason) =>
       send({'t': 'reject', 'node': node, 'word': word, 'reason': reason});
+
+  /// Broadcast a chat message to the room.
+  void sendChat(String text) {
+    var t = text.trim();
+    if (t.isEmpty || phase == Phase.lobby || phase == Phase.joining) return;
+    if (t.length > 200) t = t.substring(0, 200);
+    send({'t': 'chat', 'node': meId, 'name': myName, 'text': t});
+    chat.add(ChatMessage(name: myName, text: t, fromMe: true));
+    _trimChat();
+    notifyListeners();
+  }
+
+  void _trimChat() {
+    while (chat.length > 100) {
+      chat.removeAt(0);
+    }
+  }
 
   void sendClaim(String word) =>
       send({'t': 'claim', 'node': meId, 'word': word, 'name': myName});
@@ -382,6 +410,15 @@ class Game extends ChangeNotifier {
         if (pendingWord == word) pendingWord = null;
         me?.words.remove(word);
         showToast('"$word" rejected: ${m['reason'] ?? 'no'}');
+      case 'chat':
+        final text = ((m['text'] as String?) ?? '').trim();
+        if (text.isEmpty || node == meId) return;
+        chat.add(ChatMessage(
+          name: (m['name'] as String?) ?? '',
+          text: text,
+          fromMe: false,
+        ));
+        _trimChat();
       case 'state':
         _applyState(m);
     }
@@ -489,6 +526,7 @@ class Game extends ChangeNotifier {
         'cur': currentWord,
         'toast': toast,
         'error': _lastError,
+        'lastChat': chat.isEmpty ? '' : '${chat.last.name}|${chat.last.text}',
         'plist': [
           for (final p in players) {'score': p.score, 'words': p.words.length},
         ],

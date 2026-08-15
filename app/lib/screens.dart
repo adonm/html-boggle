@@ -384,6 +384,129 @@ class JoiningScreen extends StatelessWidget {
   }
 }
 
+// -------------------------------------------------------------------- chat
+
+/// The room chat: message list + input. Used inline in the room view and in
+/// a bottom sheet during play.
+class ChatPanel extends StatefulWidget {
+  const ChatPanel({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<ChatPanel> createState() => _ChatPanelState();
+}
+
+class _ChatPanelState extends State<ChatPanel> {
+  final TextEditingController _input = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    widget.game.removeListener(_onGame);
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onGame() {
+    // Keep pinned to the newest message, unless the user scrolled up.
+    if (!_scroll.hasClients) return;
+    final atBottom = _scroll.position.maxScrollExtent - _scroll.position.pixels < 40;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (atBottom && _scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
+  void _send() {
+    final text = _input.text;
+    if (text.trim().isEmpty) return;
+    widget.game.sendChat(text);
+    _input.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = widget.game;
+    return Column(
+      children: [
+        Expanded(
+          child: g.chat.isEmpty
+              ? Center(
+                  child: Text(
+                    'room chat - say hi',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                )
+              : ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  itemCount: g.chat.length,
+                  itemBuilder: (context, i) {
+                    final m = g.chat[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: RichText(
+                        text: TextSpan(
+                          style: theme.textTheme.bodySmall,
+                          children: [
+                            TextSpan(
+                              text: '${m.name}  ',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: m.fromMe
+                                    ? BoggleColors.youGreen
+                                    : theme.colorScheme.primary,
+                              ),
+                            ),
+                            TextSpan(text: m.text),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  // iOS Safari auto-zooms into focused inputs smaller than 16px.
+                  style: const TextStyle(fontSize: 16),
+                  decoration: const InputDecoration(
+                    labelText: 'Chat message',
+                    hintText: 'message',
+                  ),
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _send(),
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton.filled(
+                tooltip: 'Send message',
+                icon: const Icon(Icons.send),
+                onPressed: _send,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ------------------------------------------------------------------- room
 
 class RoomScreen extends StatelessWidget {
@@ -396,95 +519,107 @@ class RoomScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final g = game;
     return Center(
-      child: SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'ROOM  ${g.room}',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'ROOM  ${g.room}',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const ThemeMenu(),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'players who enter this code join the same game',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 18),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final p in g.players)
+                                ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    p.isMe ? Icons.person : Icons.person_outline,
+                                    color: p.isMe
+                                        ? BoggleColors.youGreen
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                  title: Text(
+                                    (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
+                                        (p.id == g.hostId ? '  · HOST' : ''),
+                                  ),
+                                  trailing: Text('${p.score} pts'),
+                                ),
+                              Text(
+                                '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const ThemeMenu(),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'players who enter this code join the same game',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 18),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final p in g.players)
-                          ListTile(
-                            dense: true,
-                            leading: Icon(
-                              p.isMe ? Icons.person : Icons.person_outline,
-                              color: p.isMe
-                                  ? BoggleColors.youGreen
-                                  : theme.colorScheme.onSurfaceVariant,
-                            ),
-                            title: Text(
-                              (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
-                                  (p.id == g.hostId ? '  · HOST' : ''),
-                            ),
-                            trailing: Text('${p.score} pts'),
+                      const SizedBox(height: 18),
+                      if (g.isHost)
+                        FilledButton(
+                          onPressed: g.startRound,
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                        Text(
-                          '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
+                          child: const Text('START ROUND'),
+                        )
+                      else
+                        const Text(
+                          'waiting for the host to start...',
                           textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall,
                         ),
-                      ],
-                    ),
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final url = Uri.base
+                              .replace(queryParameters: {'room': g.room}, fragment: '')
+                              .toString();
+                          await Clipboard.setData(ClipboardData(text: url));
+                          g.showToast('Link copied - share it!');
+                        },
+                        icon: const Icon(Icons.link),
+                        label: const Text('SHARE LINK'),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                if (g.isHost)
-                  FilledButton(
-                    onPressed: g.startRound,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('START ROUND'),
-                  )
-                else
-                  const Text(
-                    'waiting for the host to start...',
-                    textAlign: TextAlign.center,
-                  ),
-                const SizedBox(height: 6),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final url = Uri.base
-                        .replace(queryParameters: {'room': g.room}, fragment: '')
-                        .toString();
-                    await Clipboard.setData(ClipboardData(text: url));
-                    g.showToast('Link copied - share it!');
-                  },
-                  icon: const Icon(Icons.link),
-                  label: const Text('SHARE LINK'),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 220,
+                child: Card(child: ChatPanel(game: g)),
+              ),
+            ],
           ),
         ),
       ),
@@ -540,6 +675,24 @@ class PlayScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Room chat',
+                    icon: const Icon(Icons.forum_outlined),
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      showDragHandle: true,
+                      builder: (sheetContext) => Padding(
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                        ),
+                        child: SizedBox(
+                          height: MediaQuery.sizeOf(sheetContext).height * 0.55,
+                          child: ChatPanel(game: g),
+                        ),
+                      ),
+                    ),
+                  ),
                   const ThemeMenu(),
                 ],
               ),
