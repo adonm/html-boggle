@@ -10,8 +10,11 @@
   -->
   <script>
     (function () {
+      var src = document.currentScript && document.currentScript.src
+        ? document.currentScript.src
+        : document.location.href;
       var base = document.createElement("base");
-      base.href = new URL(".", document.currentScript.src).href;
+      base.href = new URL(".", src).href;
       document.head.appendChild(base);
     })();
   </script>
