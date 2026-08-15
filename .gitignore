@@ -4,3 +4,4 @@ target/
 net/target/
 .mise/
 *.wasm
+client/words_data.h

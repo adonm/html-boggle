@@ -1,24 +1,42 @@
 //! iroh gossip networking for html-boggle, compiled to WebAssembly for the browser.
 //!
 //! The JS glue turns a room code into a 32-byte gossip topic id (sha256). Everyone
-//! who enters the same room code therefore joins the same gossip channel and gets
-//! connected automatically. Browser endpoints run relay-only and find each other
-//! through iroh's HTTPS address lookup (the `N0` preset publishes and resolves
-//! endpoint addresses via `iroh.link`, which works from browser sandboxes).
+//! who enters the same room code therefore joins the same gossip channel.
+//!
+//! Peer discovery needs no server: a second keypair is derived from the room
+//! code, and every player publishes the room's member list (their node ids) as
+//! TXT records in that keypair's pkarr packet on the public pkarr relay
+//! (https://dns.iroh.link). Players poll the same packet and dial every id
+//! they find, so everyone entering a room converges on one gossip swarm.
 
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use iroh::protocol::Router;
+use iroh_dns::pkarr::SignedPacket;
 use iroh_gossip::{
     api::{Event as GossipEvent, GossipSender},
     net::{GOSSIP_ALPN, Gossip},
     proto::TopicId,
 };
 use n0_future::StreamExt;
+use sha2::{Digest, Sha256};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
+
+/// pkarr relay used as the serverless room rendezvous.
+pub const PKARR_RELAY_URL: &str = "https://dns.iroh.link/pkarr/";
+
+/// TTL (seconds) of the room packet; everyone re-publishes periodically.
+const ROOM_TTL: u32 = 600;
+
+/// A TXT record holds hex-encoded node ids, chunked at 192 chars (3 ids) so a
+/// record stays well under the 255-byte TXT string limit.
+const CHUNK_HEX: usize = 192;
+
+/// Room member list limit: must fit the 1000-byte pkarr DNS packet.
+const MAX_ROOM_MEMBERS: usize = 16;
 
 #[wasm_bindgen(start)]
 fn start() {
@@ -38,6 +56,16 @@ fn to_js_err(err: impl Into<anyhow::Error>) -> JsError {
     JsError::new(&err.into().to_string())
 }
 
+/// Deterministic keypair for a room: everyone who knows the room code can
+/// derive it, so anyone can sign/read the room's pkarr packet.
+fn room_secret(room: &str) -> iroh::SecretKey {
+    let mut hasher = Sha256::new();
+    hasher.update(b"boggle-room:");
+    hasher.update(room.as_bytes());
+    let bytes: [u8; 32] = hasher.finalize().into();
+    iroh::SecretKey::from_bytes(&bytes)
+}
+
 /// State shared between the gossip event loop and the JS-facing channel.
 struct Shared {
     handler: Option<js_sys::Function>,
@@ -54,8 +82,17 @@ pub struct BoggleNet {
 #[wasm_bindgen]
 impl BoggleNet {
     /// Create an endpoint plus a gossip node.
+    ///
+    /// Everyone pins the same fixed relay instead of the N0 default relay
+    /// map: the periodic net_report would otherwise switch "home" relays at
+    /// runtime, which drops all connections relayed through the old relay.
     pub async fn new() -> Result<BoggleNet, JsError> {
+        let relay: iroh::RelayUrl = "https://use1-1.relay.n0.iroh.link."
+            .parse()
+            .map_err(|err| anyhow!("invalid relay url: {err}"))
+            .map_err(to_js_err)?;
         let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
+            .relay_mode(iroh::RelayMode::custom([relay]))
             .alpns(vec![GOSSIP_ALPN.to_vec()])
             .bind()
             .await
@@ -69,9 +106,73 @@ impl BoggleNet {
         Ok(BoggleNet { gossip, router })
     }
 
-    /// This endpoint's node id (used by the room registry).
+    /// This endpoint's node id.
     pub fn node_id(&self) -> String {
         self.router.endpoint().id().to_string()
+    }
+
+    /// The z32 public key under which the room's pkarr packet is stored.
+    pub fn room_pubkey_z32(&self, room: String) -> String {
+        room_secret(&room).public().to_z32()
+    }
+
+    /// Build the signed pkarr packet (hex-encoded relay payload) carrying the
+    /// merged member list for a room.
+    pub fn pack_room(&self, room: String, node_ids: Vec<String>) -> Result<String, JsError> {
+        let key = room_secret(&room);
+
+        // keep only valid node ids (z32 strings), deduplicated and sorted for
+        // determinism
+        let mut keys: Vec<iroh::PublicKey> = Vec::new();
+        for id in node_ids {
+            let Ok(pk) = id.parse::<iroh::PublicKey>() else { continue };
+            if !keys.contains(&pk) {
+                keys.push(pk);
+            }
+        }
+        keys.sort();
+        keys.truncate(MAX_ROOM_MEMBERS);
+
+        let merged: String = keys.iter().map(|pk| hex::encode(pk.as_bytes())).collect();
+
+        // chunk the hex string into TXT records (id-aligned: chunk is a
+        // multiple of 64 hex chars)
+        let mut values: Vec<String> = Vec::new();
+        let mut rest = merged.as_str();
+        while !rest.is_empty() {
+            let take = rest.len().min(CHUNK_HEX);
+            values.push(rest[..take].to_string());
+            rest = &rest[take..];
+        }
+
+        let packet =
+            SignedPacket::from_txt_strings(&key, "@", values, ROOM_TTL).map_err(to_js_err)?;
+        Ok(hex::encode(packet.to_relay_payload()))
+    }
+
+    /// Parse a pkarr relay payload (hex) for a room and return the member node
+    /// ids (z32 strings) found in it.
+    pub fn unpack_room(&self, room: String, body_hex: String) -> Vec<String> {
+        let Ok(bytes) = hex::decode(body_hex.trim()) else {
+            return Vec::new();
+        };
+        let key = room_secret(&room);
+        let Ok(packet) = SignedPacket::from_relay_payload(&key.public(), &bytes) else {
+            return Vec::new();
+        };
+        let merged: String = packet.txt_records("@").join("");
+        let mut ids = Vec::new();
+        for chunk in merged.as_bytes().chunks(64) {
+            let Ok(chunk) = std::str::from_utf8(chunk) else { continue };
+            let Ok(bytes) = hex::decode(chunk) else { continue };
+            let bytes: [u8; 32] = match bytes.try_into() {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let Ok(pk) = iroh::PublicKey::from_bytes(&bytes) else { continue };
+            ids.push(pk.to_string());
+        }
+        ids
     }
 
     /// Subscribe to the gossip topic for a room, dialing the given peers as
@@ -161,6 +262,20 @@ impl BoggleChannel {
             .broadcast(text.into_bytes().into())
             .await
             .map_err(to_js_err)?;
+        Ok(())
+    }
+
+    /// Ask gossip to connect to peers discovered through the room's pkarr
+    /// packet after the initial subscription.
+    pub async fn join_peers(&self, peers: Vec<String>) -> Result<(), JsError> {
+        let ids: Vec<iroh::EndpointId> = peers
+            .iter()
+            .filter_map(|p| p.parse::<iroh::EndpointId>().ok())
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        self.sender.join_peers(ids).await.map_err(to_js_err)?;
         Ok(())
     }
 

@@ -13,9 +13,11 @@ console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 hex = "0.4"
 iroh = { version = "1.0.0", default-features = false, features = ["tls-ring"] }
+iroh-dns = { version = "1", default-features = false }
 iroh-gossip = { version = "0.101", default-features = false, features = ["net"] }
 n0-future = "0.3"
 serde_json = "1"
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-subscriber-wasm = "0.1"

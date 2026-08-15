@@ -48,6 +48,18 @@ function findShell() {
     "no chromium headless shell found - run: npx playwright install chromium-headless-shell",
   );
 }
+const CHROMIUM_ARGS = [
+  "--enable-unsafe-swiftshader",
+  "--use-angle=swiftshader",
+  // The headless shell treats pages as backgrounded and throttles timers to
+  // ~1/min (IntensiveWakeUpThrottling), which stalls the game loop and the
+  // gossip event delivery. Disable all of that.
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion",
+];
+
 const SHELL = findShell();
 
 const PORT = 8000 + Math.floor(Math.random() * 2000);
@@ -245,11 +257,11 @@ try {
   // sockets of its non-active contexts, which breaks the P2P overlay.
   browserA = await chromium.launch({
     executablePath: SHELL,
-    args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+    args: CHROMIUM_ARGS,
   });
   browserB = await chromium.launch({
     executablePath: SHELL,
-    args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+    args: CHROMIUM_ARGS,
   });
 
   console.log("page A (Alice)...");
@@ -355,12 +367,21 @@ try {
     await waitFor(async () => {
       const ba = parseDbg(await dbg(pageA));
       const bb = parseDbg(await dbg(pageB));
-      return ba.total > 0 && bb.total > 0 && bb.words >= 1 ? { ba, bb } : null;
-    }, 90_000, "word award to propagate to both pages");
+      const sub = parseDbg(await dbg(bobPage));
+      return ba.total > 0 && bb.total > 0 && sub.words >= 1 ? { ba, bb } : null;
+    }, 150_000, "word award to propagate to both pages");
     console.log("  WORD ACCEPTED on both pages:", await dbg(pageA), "|", await dbg(pageB));
   } catch {
     console.log("  word did not register; state A:", await dbg(pageA));
     console.log("  state B:", await dbg(pageB));
+    console.log(
+      "  glue stats A:",
+      await pageA.evaluate(() => JSON.stringify(window.__boggleGlue?.stats ?? null)),
+    );
+    console.log(
+      "  glue stats B:",
+      await pageB.evaluate(() => JSON.stringify(window.__boggleGlue?.stats ?? null)),
+    );
     throw new Error("FAIL: word award did not propagate");
   }
 

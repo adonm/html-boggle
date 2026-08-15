@@ -1,0 +1,44 @@
+name: E2E (real browsers)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      - name: Cache build inputs + browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache
+            ~/.cache/ms-playwright
+            ~/.cargo/registry
+            ~/.cargo/git
+            net/target
+          key: e2e-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'mise.toml') }}
+          restore-keys: |
+            e2e-${{ runner.os }}-
+
+      - name: Setup
+        run: mise run setup
+
+      - name: Build
+        run: mise run build
+
+      - name: Install chromium headless shell
+        run: npx playwright install chromium-headless-shell --with-deps
+
+      - name: "E2E: two browsers join one room over real iroh relays"
+        run: mise run test

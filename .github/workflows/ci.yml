@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the tools pinned in mise.toml (deno, rust, emsdk, node) and
+      # puts them on PATH for all following steps.
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      - name: Cache build inputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            net/target
+          key: build-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'mise.toml') }}
+          restore-keys: |
+            build-${{ runner.os }}-
+
+      - name: Setup (wasm target + vendored deps)
+        run: mise run setup
+
+      - name: Build
+        run: mise run build
+
+      - name: Check
+        run: |
+          deno check server/main.ts scripts/*.ts
+          node --check scripts/e2e-web.mjs
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
