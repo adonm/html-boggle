@@ -3,8 +3,10 @@
 /// Layouts adapt to phone-sized viewports (stacked board, scrollable panels).
 library;
 
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import 'game.dart';
 import 'theme.dart';
@@ -80,7 +82,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 stops: const [0.0, 0.35],
               ),
             ),
-            child: SafeArea(child: screen),
+            child: SafeArea(
+              child: AnimatedSwitcher(
+                duration: 300.ms,
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.03),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(key: ValueKey(g.phase), child: screen),
+              ),
+            ),
           ),
         );
       },
@@ -244,26 +263,37 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 children: [
                   // Dice mark + title
                   Center(
-                    child: Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            theme.colorScheme.primary,
-                            theme.colorScheme.primary.withValues(alpha: 0.65),
-                          ],
+                    child: Animate(
+                      onPlay: (c) => c.loop(reverse: true),
+                      effects: [
+                        RotateEffect(
+                          begin: -0.04,
+                          end: 0.04,
+                          duration: 1400.ms,
+                          curve: Curves.easeInOut,
                         ),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'B',
-                          style: theme.textTheme.displaySmall?.copyWith(
-                            color: theme.colorScheme.onPrimary,
-                            fontWeight: FontWeight.w900,
+                      ],
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              theme.colorScheme.primary,
+                              theme.colorScheme.primary.withValues(alpha: 0.65),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'B',
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
                       ),
@@ -385,6 +415,52 @@ class JoiningScreen extends StatelessWidget {
 }
 
 // -------------------------------------------------------------------- chat
+
+/// Ready / start controls: everyone readies up, then ANYONE can start.
+class ReadyStartControls extends StatelessWidget {
+  const ReadyStartControls({
+    super.key,
+    required this.game,
+    required this.startLabel,
+  });
+
+  final Game game;
+  final String startLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final g = game;
+    if (g.allReady) {
+      return FilledButton.icon(
+        onPressed: g.startRound,
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+        icon: const Icon(Icons.play_arrow),
+        label: Text(startLabel),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: g.toggleReady,
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          icon: Icon(g.me?.ready == true ? Icons.check_circle : Icons.check_circle_outline),
+          label: Text(g.me?.ready == true ? 'READY ✓' : 'READY'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'waiting for everyone... ${g.readyCount}/${g.players.length} ready',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
 
 /// The room chat: message list + input. Used inline in the room view and in
 /// a bottom sheet during play.
@@ -571,9 +647,23 @@ class RoomScreen extends StatelessWidget {
                                   ),
                                   title: Text(
                                     (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? 'connecting...' : p.name)) +
-                                        (p.id == g.hostId ? '  · HOST' : ''),
+                                        (p.id == g.hostId ? '  · LEADER' : ''),
                                   ),
-                                  trailing: Text('${p.score} pts'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        p.ready ? 'ready ✓' : '…',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: p.ready
+                                              ? BoggleColors.youGreen
+                                              : theme.colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text('${p.score}'),
+                                    ],
+                                  ),
                                 ),
                               Text(
                                 '${g.players.length} player${g.players.length == 1 ? '' : 's'} in room',
@@ -585,19 +675,7 @@ class RoomScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      if (g.isHost)
-                        FilledButton(
-                          onPressed: g.startRound,
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          child: const Text('START ROUND'),
-                        )
-                      else
-                        const Text(
-                          'waiting for the host to start...',
-                          textAlign: TextAlign.center,
-                        ),
+                      ReadyStartControls(game: g, startLabel: 'START ROUND'),
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -629,10 +707,40 @@ class RoomScreen extends StatelessWidget {
 
 // -------------------------------------------------------------------- play
 
-class PlayScreen extends StatelessWidget {
+class PlayScreen extends StatefulWidget {
   const PlayScreen({super.key, required this.game});
 
   final Game game;
+
+  @override
+  State<PlayScreen> createState() => _PlayScreenState();
+}
+
+class _PlayScreenState extends State<PlayScreen> {
+  final ConfettiController _confetti = ConfettiController(duration: 900.ms);
+  int _lastAward = 0;
+
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    game.removeListener(_onGame);
+    _confetti.dispose();
+    super.dispose();
+  }
+
+  void _onGame() {
+    if (game.awardPulse != _lastAward) {
+      _lastAward = game.awardPulse;
+      _confetti.play();
+    }
+  }
 
   String _fmt(int ms) {
     final s = (ms / 1000).ceil();
@@ -645,12 +753,23 @@ class PlayScreen extends StatelessWidget {
     final g = game;
     final remaining = g.remainingMs();
     final urgent = remaining < 10000;
-    return Center(
-      child: ConstrainedBox(
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Center(
+            child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 900),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 720;
+            final timerText = Text(
+              _fmt(remaining),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                fontWeight: FontWeight.bold,
+              ),
+            );
             final header = Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -666,14 +785,22 @@ class PlayScreen extends StatelessWidget {
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  Text(
-                    _fmt(remaining),
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  // pulse the clock when time runs short
+                  if (urgent)
+                    Animate(
+                      onPlay: (c) => c.loop(reverse: true),
+                      effects: [
+                        ScaleEffect(
+                          begin: const Offset(1.0, 1.0),
+                          end: const Offset(1.12, 1.12),
+                          duration: 550.ms,
+                          curve: Curves.easeInOut,
+                        ),
+                      ],
+                      child: timerText,
+                    )
+                  else
+                    timerText,
                   const SizedBox(width: 4),
                   IconButton(
                     tooltip: 'Room chat',
@@ -719,6 +846,21 @@ class PlayScreen extends StatelessWidget {
                 letterSpacing: 3,
               ),
             );
+            // shake the word when a submission is rejected
+            final wordWidget = g.wordAttempts > 0
+                ? Animate(
+                    key: ValueKey('shake${g.wordAttempts}'),
+                    effects: [
+                      ShakeEffect(
+                        duration: 420.ms,
+                        hz: 4,
+                        offset: const Offset(5, 0),
+                        curve: Curves.easeInOut,
+                      ),
+                    ],
+                    child: wordText,
+                  )
+                : wordText;
             final actions = Wrap(
               alignment: WrapAlignment.center,
               spacing: 6,
@@ -762,7 +904,7 @@ class PlayScreen extends StatelessWidget {
                               children: [
                                 Expanded(child: _buildBoard(theme, g)),
                                 const SizedBox(height: 12),
-                                wordText,
+                                wordWidget,
                                 const SizedBox(height: 6),
                                 actions,
                               ],
@@ -793,7 +935,7 @@ class PlayScreen extends StatelessWidget {
                     child: _buildBoard(theme, g),
                   ),
                   const SizedBox(height: 12),
-                  wordText,
+                  wordWidget,
                   const SizedBox(height: 6),
                   actions,
                   const SizedBox(height: 12),
@@ -804,7 +946,27 @@ class PlayScreen extends StatelessWidget {
           },
         ),
       ),
-    );
+        ),
+      ),
+      Align(
+        alignment: Alignment.topCenter,
+        child: ConfettiWidget(
+          confettiController: _confetti,
+          blastDirectionality: BlastDirectionality.explosive,
+          emissionFrequency: 0.04,
+          numberOfParticles: 30,
+          gravity: 0.25,
+          maxBlastForce: 32,
+          minBlastForce: 8,
+          colors: [
+            theme.colorScheme.primary,
+            BoggleColors.youGreen,
+            BoggleColors.medalGold,
+            theme.colorScheme.error,
+          ],
+        ),
+      ),
+    ]);
   }
 
   Widget _buildBoard(ThemeData theme, Game g) {
@@ -827,39 +989,63 @@ class PlayScreen extends StatelessWidget {
     final order = g.path.indexOf(i);
     final selected = order >= 0;
     final letter = g.board.isEmpty ? '' : g.board[i].toUpperCase();
-    return Semantics(
-      label: 'Tile ${i + 1} letter $letter',
-      button: true,
-      selected: selected,
-      child: Material(
-        color: selected
-            ? theme.colorScheme.primary
-            : theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(_cardRadius),
-        child: InkWell(
+    return Animate(
+      // deal the tiles in at the start of every round
+      key: ValueKey('tile$i-${g.roundEpoch}'),
+      effects: [
+        ScaleEffect(
+          begin: const Offset(0.4, 0.4),
+          end: const Offset(1, 1),
+          duration: 420.ms,
+          curve: Curves.easeOutBack,
+          delay: (i * 28).ms,
+        ),
+        FadeEffect(
+          begin: 0.0,
+          end: 1.0,
+          duration: 250.ms,
+          delay: (i * 28).ms,
+        ),
+      ],
+      child: Semantics(
+        label: 'Tile ${i + 1} letter $letter',
+        button: true,
+        selected: selected,
+        child: Material(
+          color: selected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(_cardRadius),
-          onTap: () => g.tapTile(i),
-          child: SizedBox.expand(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  letter,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    color: selected
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (selected)
-                  Text(
-                    '${order + 1}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onPrimary,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(_cardRadius),
+            onTap: () => g.tapTile(i),
+            child: AnimatedScale(
+              scale: selected ? 1.07 : 1.0,
+              duration: 110.ms,
+              curve: Curves.easeOut,
+              child: SizedBox.expand(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      letter,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: selected
+                            ? theme.colorScheme.onPrimary
+                            : theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-              ],
+                    if (selected)
+                      Text(
+                        '${order + 1}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onPrimary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -897,7 +1083,7 @@ class PlayScreen extends StatelessWidget {
                     Expanded(
                       child: Text(
                         (p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? '...' : p.name)) +
-                            (p.id == g.hostId ? ' · HOST' : ''),
+                            (p.id == g.hostId ? ' · LEADER' : ''),
                         overflow: TextOverflow.ellipsis,
                         style: p.isMe
                             ? const TextStyle(
@@ -935,10 +1121,31 @@ class PlayScreen extends StatelessWidget {
 
 // ---------------------------------------------------------------- results
 
-class ResultsScreen extends StatelessWidget {
+class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key, required this.game});
 
   final Game game;
+
+  @override
+  State<ResultsScreen> createState() => _ResultsScreenState();
+}
+
+class _ResultsScreenState extends State<ResultsScreen> {
+  final ConfettiController _confetti = ConfettiController(duration: 1600.ms);
+
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    _confetti.play();
+  }
+
+  @override
+  void dispose() {
+    _confetti.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -946,8 +1153,11 @@ class ResultsScreen extends StatelessWidget {
     final g = game;
     final ranked = [...g.players]
       ..sort((a, b) => b.score.compareTo(a.score));
-    return Center(
-      child: SingleChildScrollView(
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Center(
+            child: SingleChildScrollView(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: Padding(
@@ -1031,24 +1241,34 @@ class ResultsScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 18),
-                if (g.isHost)
-                  FilledButton(
-                    onPressed: g.startRound,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('NEXT ROUND'),
-                  )
-                else
-                  const Text(
-                    'waiting for the host...',
-                    textAlign: TextAlign.center,
-                  ),
+                ReadyStartControls(game: g, startLabel: 'NEXT ROUND'),
               ],
             ),
           ),
         ),
       ),
+        ),
+      ),
+      Align(
+        alignment: Alignment.topCenter,
+        child: ConfettiWidget(
+          confettiController: _confetti,
+          blastDirectionality: BlastDirectionality.explosive,
+          emissionFrequency: 0.05,
+            numberOfParticles: 45,
+            gravity: 0.3,
+            maxBlastForce: 40,
+            minBlastForce: 12,
+            colors: [
+              theme.colorScheme.primary,
+              BoggleColors.youGreen,
+              BoggleColors.medalGold,
+              BoggleColors.medalSilver,
+              BoggleColors.medalBronze,
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -21,6 +21,7 @@ class Player {
   final String id;
   String name;
   int score = 0;
+  bool ready = false;
   final Set<String> words = {};
   DateTime lastSeen = DateTime.now();
   bool isMe = false;
@@ -29,6 +30,7 @@ class Player {
         'node': id,
         'name': name,
         'score': score,
+        'ready': ready,
         'words': words.toList(),
       };
 }
@@ -37,6 +39,7 @@ const int roundMs = 180000;
 const Duration helloInterval = Duration(seconds: 5);
 const Duration stateInterval = Duration(seconds: 10);
 const Duration playerTimeout = Duration(seconds: 45);
+const Duration leaderTimeout = Duration(seconds: 25);
 const Duration pendingRetry = Duration(seconds: 5);
 
 const List<String> randomNames = [
@@ -81,6 +84,11 @@ class Game extends ChangeNotifier {
   StreamSubscription? _eventsSub;
   int _seq = 0;
 
+  // UI flair triggers (consumed by screens).
+  int wordAttempts = 0; // failed submissions -> word shake
+  int awardPulse = 0; // accepted words -> confetti burst
+  int roundEpoch = 0; // round starts -> tile deal-in animation
+
   String get currentWord => path.map((i) => board[i]).join();
   String get hostId => players.isEmpty
       ? ''
@@ -88,6 +96,9 @@ class Game extends ChangeNotifier {
   bool get isHost => meId.isNotEmpty && meId == hostId;
   Player? get me => players.where((p) => p.id == meId).firstOrNull;
   int get totalScore => players.fold(0, (a, p) => a + p.score);
+  bool get allReady => players.isNotEmpty && players.every((p) => p.ready);
+  int get readyCount => players.where((p) => p.ready).length;
+  String _lastHostId = '';
 
   int remainingMs() {
     final dl = deadline;
@@ -172,6 +183,15 @@ class Game extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Toggle my ready state (starts require everyone ready).
+  void toggleReady() {
+    final me = this.me;
+    if (me == null || (phase != Phase.room && phase != Phase.results)) return;
+    me.ready = !me.ready;
+    send({'t': 'ready', 'node': meId, 'ready': me.ready});
+    notifyListeners();
+  }
+
   void _trimChat() {
     while (chat.length > 100) {
       chat.removeAt(0);
@@ -198,7 +218,7 @@ class Game extends ChangeNotifier {
   }
 
   void startRound() {
-    if (phase != Phase.room && phase != Phase.results) return;
+    if ((phase != Phase.room && phase != Phase.results) || !allReady) return;
     deadline = DateTime.now().add(const Duration(milliseconds: roundMs));
     round++;
     send({
@@ -214,9 +234,11 @@ class Game extends ChangeNotifier {
   void _applyStart() {
     for (final p in players) {
       p.words.clear();
+      p.ready = false;
     }
     path.clear();
     pendingWord = null;
+    roundEpoch++;
     phase = Phase.play;
     showToast('Round $round - find words!');
   }
@@ -262,26 +284,36 @@ class Game extends ChangeNotifier {
     path.clear();
     if (me == null) return;
     if (word.length < 3) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
       showToast('Words need at least 3 letters');
       notifyListeners();
       return;
     }
     if (me.words.contains(word)) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
       showToast('You already found "$word"');
       notifyListeners();
       return;
     }
     if (players.any((p) => p.id != meId && p.words.contains(word))) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
       showToast('"$word" is already taken');
       notifyListeners();
       return;
     }
     if (!finder.hasWord(word)) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
       showToast('"$word" is not in the dictionary');
       notifyListeners();
       return;
     }
     if (!finder.forms(word)) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
       showToast('"$word" is not on the board');
       notifyListeners();
       return;
@@ -290,6 +322,8 @@ class Game extends ChangeNotifier {
       me.words.add(word);
       me.score += scoreForLen(word.length);
       sendAward(word, meId);
+      awardPulse++;
+      HapticFeedback.mediumImpact();
       showToast('+${scoreForLen(word.length)} for "$word"!');
     } else {
       // optimistic: host arbitrates; retried until acknowledged
@@ -298,6 +332,7 @@ class Game extends ChangeNotifier {
       pendingWord = word;
       pendingSentAt = DateTime.now();
       sendClaim(word);
+      HapticFeedback.selectionClick();
       showToast('Submitted "$word"');
     }
     notifyListeners();
@@ -401,6 +436,8 @@ class Game extends ChangeNotifier {
         p.words.add(word);
         p.score += scoreForLen(word.length);
         if (p.isMe && pendingWord == word) pendingWord = null;
+        awardPulse++;
+        HapticFeedback.mediumImpact();
         if (!p.isMe) {
           showToast('${p.name.isEmpty ? 'Someone' : p.name}: "$word" +${scoreForLen(word.length)}');
         }
@@ -419,6 +456,11 @@ class Game extends ChangeNotifier {
           fromMe: false,
         ));
         _trimChat();
+      case 'ready':
+        final p = players.where((p) => p.id == node).firstOrNull;
+        if (p != null && m['ready'] is bool) {
+          p.ready = m['ready'] as bool;
+        }
       case 'state':
         _applyState(m);
     }
@@ -434,6 +476,7 @@ class Game extends ChangeNotifier {
         if (id == null) continue;
         final p = Player(id, (item['name'] as String?) ?? '');
         p.score = (item['score'] as num?)?.toInt() ?? 0;
+        p.ready = item['ready'] == true;
         final words = item['words'];
         if (words is List) {
           for (final w in words) {
@@ -486,8 +529,27 @@ class Game extends ChangeNotifier {
       final before = players.length;
       players.removeWhere((p) => !p.isMe && now.difference(p.lastSeen) > playerTimeout);
       if (players.length != before && isHost) sendState();
+      // Self-healing leadership: if the leader goes silent for a while,
+      // drop it so the next smallest node id takes over.
+      final host = hostId;
+      if (host.isNotEmpty && host != meId) {
+        final hp = players.where((p) => p.id == host).firstOrNull;
+        if (hp != null && now.difference(hp.lastSeen) > leaderTimeout) {
+          showToast('${hp.name.isEmpty ? 'The leader' : hp.name} went away - reselecting');
+          players.removeWhere((p) => p.id == host);
+        }
+      }
+      // Announce leadership changes: the new leader re-syncs everyone.
+      if (hostId != _lastHostId) {
+        _lastHostId = hostId;
+        if (isHost) {
+          showToast('You are the leader now');
+          sendState();
+        }
+      }
       if (phase == Phase.play && deadline != null && now.isAfter(deadline!)) {
         phase = Phase.results;
+        HapticFeedback.heavyImpact();
         showToast('Round over!');
         if (isHost) sendState();
       }
@@ -527,6 +589,10 @@ class Game extends ChangeNotifier {
         'toast': toast,
         'error': _lastError,
         'lastChat': chat.isEmpty ? '' : '${chat.last.name}|${chat.last.text}',
+        'allReady': allReady,
+        'myReady': me?.ready ?? false,
+        'readyCount': readyCount,
+        'host': hostId,
         'plist': [
           for (final p in players) {'score': p.score, 'words': p.words.length},
         ],

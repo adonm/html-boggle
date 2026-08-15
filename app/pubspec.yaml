@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   crypto: ^3.0.6
   yaru: ^10.2.0
+  flutter_animate: ^4.5.2
+  confetti: ^0.8.0
 
 dev_dependencies:
   flutter_test:

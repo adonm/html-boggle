@@ -318,6 +318,22 @@ try {
   }, 30_000, "chat message to reach Bob");
   console.log("  CHAT delivered:", (await state(pageB)).lastChat);
 
+  // everyone readies up; anyone may start once all are ready
+  console.log("everyone readies up...");
+  for (const p of [pageA, pageB]) {
+    const btn = p.getByRole("button", { name: "READY", exact: true });
+    if (await waitForSoft(async () => (await btn.count()) > 0, 10_000)) {
+      await btn.click({ timeout: 10_000 });
+      console.log("  ready clicked on", p === pageA ? "A" : "B");
+    }
+  }
+  await waitFor(async () => {
+    const a = await state(pageA);
+    const b = await state(pageB);
+    return a.allReady && b.allReady ? { a, b } : null;
+  }, 30_000, "everyone to be ready");
+  console.log("  all ready:", (await state(pageA)).readyCount, "/", (await state(pageB)).readyCount);
+
   // host = smallest node id
   const a = await state(pageA);
   const b = await state(pageB);
@@ -356,12 +372,39 @@ try {
   }, 150_000, "word award to propagate to both pages");
   console.log("  WORD ACCEPTED on both pages:", JSON.stringify(await state(pageA)), "|", JSON.stringify(await state(pageB)));
 
+  // Self-healing leadership: crash the leader's renderer (no graceful bye)
+  // and verify the survivor prunes it and takes over mid-round.
+  console.log("crashing the leader's page (no farewell)...");
+  await Promise.race([
+    (async () => {
+      const client = await hostPage.context().newCDPSession(hostPage);
+      await client.send("Page.crash").catch(() => {});
+    })(),
+    sleep(5000),
+  ]).catch(() => {});
+  const survivor = hostPage === pageA ? pageB : pageA;
+  const survivorMe = (await state(survivor)).me;
+  try {
+    await waitFor(async () => {
+      const s = await state(survivor);
+      return s.players === 1 && s.host === s.me && s.phase === "play" ? s : null;
+    }, 60_000, "survivor to reselect itself as leader");
+  } catch (err) {
+    console.log("  survivor state at timeout:", JSON.stringify(await state(survivor).catch(() => null)));
+    throw err;
+  }
+  console.log("  LEADER RESELECTED mid-round:", JSON.stringify(await state(survivor)));
+  if ((await state(survivor)).host !== survivorMe) fail("unexpected new leader");
+
   console.log("\nPASS: two browsers, one room, one gossip channel, realtime play ✅");
 } catch (err) {
   console.error(err.message ?? err);
   process.exitCode = 1;
 } finally {
-  if (browserA) await browserA.close();
-  if (browserB) await browserB.close();
+  // A crashed browser can hang on close; bound it.
+  const closeSafe = (b) =>
+    b ? Promise.race([b.close(), sleep(5000)]).catch(() => {}) : Promise.resolve();
+  await closeSafe(browserA);
+  await closeSafe(browserB);
   server.kill();
 }
