@@ -126,8 +126,16 @@ try {
   const idBefore = (await state(pageA)).me;
 
   // start a boggle round mid-flight and play a word, so there is live state
-  await pageA.evaluate(() => window.__boggleDebugReady(""));
-  await pageB.evaluate(() => window.__boggleDebugReady(""));
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (!(await state(pageA))?.myReady) {
+      await pageA.evaluate(() => window.__boggleDebugReady(""));
+    }
+    if (!(await state(pageB))?.myReady) {
+      await pageB.evaluate(() => window.__boggleDebugReady(""));
+    }
+    await sleep(2000);
+    if ((await state(pageA))?.allReady) break;
+  }
   await waitFor(async () => ((await state(pageA))?.allReady ? true : null), 30_000, "ready");
   await pageA.evaluate(() => window.__boggleDebugStart(""));
   await waitFor(async () => ((await state(pageB))?.phase === "play" ? true : null), 30_000, "round start");

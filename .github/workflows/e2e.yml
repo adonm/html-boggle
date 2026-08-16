@@ -56,3 +56,9 @@ jobs:
 
       - name: "E2E: identity + room resume across reloads"
         run: mise run test-resume
+
+      - name: "E2E: go with capture and pass-pass end"
+        run: mise run test-go
+
+      - name: "E2E: word tiles play through the star"
+        run: mise run test-wt

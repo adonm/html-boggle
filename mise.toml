@@ -23,3 +23,7 @@ test-sketch = "node scripts/e2e-sketch.mjs"
 test-chess = "node scripts/e2e-chess.mjs"
 # Identity/room persistence: reload auto-rejoins the live round; leave clears the cache.
 test-resume = "node scripts/e2e-resume.mjs"
+# Go (9x9): UI stone + capture sequence, pass-pass end, area scoring agrees.
+test-go = "node scripts/e2e-go.mjs"
+# Word Tiles: play through the center star, pass-pass end, derived scores agree.
+test-wt = "node scripts/e2e-wt.mjs"

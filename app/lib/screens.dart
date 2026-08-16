@@ -11,8 +11,10 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import 'chess.dart';
 import 'game.dart';
+import 'go.dart';
 import 'net.dart';
 import 'theme.dart';
+import 'wordtiles.dart';
 
 const double _cardRadius = 12;
 
@@ -864,6 +866,12 @@ class _PlayScreenState extends State<PlayScreen> {
     if (g.mode == GameMode.chess) {
       return ChessPlayBody(game: g);
     }
+    if (g.mode == GameMode.go) {
+      return GoPlayBody(game: g);
+    }
+    if (g.mode == GameMode.wordtiles) {
+      return WtPlayBody(game: g);
+    }
     final remaining = g.remainingMs();
     final urgent = remaining < 10000;
     return Stack(
@@ -1597,6 +1605,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   ChessResultsBanner(game: g),
                   const SizedBox(height: 12),
                   _ResultsScoreCard(ranked: ranked),
+                ] else if (g.mode == GameMode.go) ...[
+                  GoResultsBanner(game: g),
+                  const SizedBox(height: 12),
+                  _ResultsScoreCard(ranked: ranked),
+                ] else if (g.mode == GameMode.wordtiles) ...[
+                  WtResultsBanner(game: g),
+                  const SizedBox(height: 12),
+                  _ResultsScoreCard(ranked: ranked),
                 ] else ...[
                   Text(
                     'ROUND ${g.round} OVER',
@@ -2264,6 +2280,600 @@ class _ResultsScoreCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------- go
+
+/// Go (9x9) play view: tap an intersection to place a stone.
+class GoPlayBody extends StatefulWidget {
+  const GoPlayBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<GoPlayBody> createState() => _GoPlayBodyState();
+}
+
+class _GoPlayBodyState extends State<GoPlayBody> {
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    game.removeListener(_onGame);
+    super.dispose();
+  }
+
+  void _onGame() => setState(() {});
+
+  Widget _cell(int x, int y, double sq, bool myTurn) {
+    final coord = GoGame.coord(y * 9 + x);
+    return Semantics(
+      label: 'go cell $coord',
+      button: true,
+      child: SizedBox(
+        width: sq,
+        height: sq,
+        child: InkWell(
+          onTap: myTurn ? () => game.goTryMove(coord) : null,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final r = GoGame.replay(g.goMoves);
+    final myTurn = g.meId == g.goTurnId;
+    final isPlayer = g.meId == g.goBlack || g.meId == g.goWhite;
+    final lastIdx = g.goMoves.isNotEmpty &&
+            g.goMoves.last != 'pass' &&
+            g.goMoves.last != 'resign'
+        ? GoGame.sq(g.goMoves.last)
+        : -1;
+    String nameOf(String id) =>
+        g.players.where((p) => p.id == id).firstOrNull?.name ?? id;
+    final turnName = g.goBlackTurn
+        ? (nameOf(g.goBlack).isEmpty ? 'Black' : nameOf(g.goBlack))
+        : (nameOf(g.goWhite).isEmpty ? 'White' : nameOf(g.goWhite));
+    final blackCount = r.board.where((c) => c == 'B').length;
+    final whiteCount = r.board.where((c) => c == 'W').length;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            isPlayer
+                ? (myTurn ? 'YOUR MOVE' : 'waiting for $turnName...')
+                : 'spectating - $turnName to move',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: myTurn ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size = Size(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      );
+                      final sq = size.width / 9;
+                      return Stack(
+                        children: [
+                          Positioned.fill(
+                            child: CustomPaint(
+                              size: size,
+                              painter: GoPainter(
+                                board: r.board,
+                                lastIdx: lastIdx,
+                                theme: theme,
+                              ),
+                            ),
+                          ),
+                          Column(
+                            children: [
+                              for (var y = 0; y < 9; y++)
+                                Row(
+                                  children: [
+                                    for (var x = 0; x < 9; x++)
+                                      _cell(x, y, sq, myTurn),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'BLACK $blackCount · WHITE $whiteCount',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(width: 16),
+              if (isPlayer) ...[
+                FilledButton.tonal(
+                  onPressed: myTurn ? g.goPassTurn : null,
+                  child: const Text('PASS'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: g.goResign,
+                  child: const Text('RESIGN'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Paints the 9x9 grid, star points, stones, and the last-move marker.
+class GoPainter extends CustomPainter {
+  const GoPainter({
+    required this.board,
+    required this.lastIdx,
+    required this.theme,
+  });
+
+  final List<String> board;
+  final int lastIdx;
+  final ThemeData theme;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bg = Paint()..color = theme.colorScheme.surfaceContainerHighest;
+    canvas.drawRect(Offset.zero & size, bg);
+    final step = size.width / 9;
+    final line = Paint()
+      ..color = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7)
+      ..strokeWidth = 1.2;
+    for (var i = 0; i < 9; i++) {
+      final p = step * (i + 0.5);
+      canvas.drawLine(Offset(step / 2, p), Offset(size.width - step / 2, p), line);
+      canvas.drawLine(Offset(p, step / 2), Offset(p, size.height - step / 2), line);
+    }
+    // star points (hoshi)
+    final star = Paint()..color = theme.colorScheme.onSurfaceVariant;
+    for (final h in const [2, 6]) {
+      for (final v in const [2, 6]) {
+        canvas.drawCircle(
+          Offset(step * (h + 0.5), step * (v + 0.5)),
+          step * 0.09,
+          star,
+        );
+      }
+    }
+    canvas.drawCircle(Offset(step * 4.5, step * 4.5), step * 0.09, star);
+
+    for (var i = 0; i < 81; i++) {
+      if (board[i] == '.') continue;
+      final x = step * (i % 9 + 0.5);
+      final y = step * (i ~/ 9 + 0.5);
+      final center = Offset(x, y);
+      final stone = Paint()
+        ..color = board[i] == 'B' ? const Color(0xFF2B2B2B) : const Color(0xFFF5F5F5)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(center, step * 0.42, stone);
+      if (board[i] == 'W') {
+        canvas.drawCircle(
+          center,
+          step * 0.42,
+          Paint()
+            ..color = theme.colorScheme.onSurfaceVariant
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1,
+        );
+      }
+      if (i == lastIdx) {
+        canvas.drawCircle(
+          center,
+          step * 0.12,
+          Paint()
+            ..color = board[i] == 'B' ? Colors.white : Colors.black,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(GoPainter oldDelegate) =>
+      oldDelegate.board.toString() != board.toString() ||
+      oldDelegate.lastIdx != lastIdx;
+}
+
+class GoResultsBanner extends StatelessWidget {
+  const GoResultsBanner({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final s = GoGame.score(GoGame.replay(g.goMoves).board);
+    final text = switch (g.goWinner) {
+      'black' => 'BLACK WINS',
+      'white' => 'WHITE WINS',
+      'draw' => 'DRAW',
+      _ => 'GAME OVER',
+    };
+    return Column(
+      children: [
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'BLACK ${s.black} AREA · WHITE ${s.white} AREA',
+          style: theme.textTheme.titleMedium,
+        ),
+      ],
+    );
+  }
+}
+
+// -------------------------------------------------------------- word tiles
+
+/// Word Tiles play view: rack chips + board, tap-tap to place tiles.
+class WtPlayBody extends StatefulWidget {
+  const WtPlayBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<WtPlayBody> createState() => _WtPlayBodyState();
+}
+
+class _WtPlayBodyState extends State<WtPlayBody> {
+  final Map<String, String> _pending = {}; // "x:y" -> letter
+  String? _selected; // selected rack letter (one instance)
+  int _seenMoves = 0;
+
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    _seenMoves = game.wtMoves.length;
+    game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    game.removeListener(_onGame);
+    super.dispose();
+  }
+
+  void _onGame() {
+    setState(() {
+      // only a real move (someone played/passed) resets pending placements;
+      // periodic hellos/state syncs must not wipe a placement in progress
+      if (game.wtMoves.length != _seenMoves) {
+        _seenMoves = game.wtMoves.length;
+        _pending.clear();
+        _selected = null;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final board = g.wtBoard;
+    final rack = g.wtMyRack;
+    final myTurn = g.meId == g.wtTurnId;
+    final isPlayer = g.wtSeats.contains(g.meId);
+    final turnName = g.players
+        .where((p) => p.id == g.wtTurnId)
+        .firstOrNull
+        ?.name;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          child: Text(
+            isPlayer
+                ? (myTurn ? 'YOUR TURN - place tiles' : 'waiting for $turnName...')
+                : 'spectating - $turnName to play',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: myTurn ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 480),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final sq = constraints.maxWidth / WtGame.size;
+                      return Column(
+                        children: [
+                          for (var y = 0; y < WtGame.size; y++)
+                            Row(
+                              children: [
+                                for (var x = 0; x < WtGame.size; x++)
+                                  _wtCell(x, y, board, sq, theme),
+                              ],
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            'SCORES: ${[
+              for (var i = 0; i < g.wtSeats.length; i++)
+                '${g.players.where((p) => p.id == g.wtSeats[i]).firstOrNull?.name ?? '?'} ${g.wtScoreOf(i)}',
+            ].join(' · ')}',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            children: [
+              for (var i = 0; i < rack.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                  child: _wtChip(rack[i], i, myTurn, theme),
+                ),
+            ],
+          ),
+        ),
+        if (isPlayer)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FilledButton(
+                  onPressed: (myTurn && _pending.isNotEmpty) ? _play : null,
+                  child: const Text('PLAY'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: (_pending.isNotEmpty)
+                      ? () => setState(() {
+                            _pending.clear();
+                            _selected = null;
+                          })
+                      : null,
+                  child: const Text('RECALL'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: myTurn ? g.wtPassTurn : null,
+                  child: const Text('PASS'),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _wtCell(int x, int y, Map<String, String> board, double sq,
+      ThemeData theme) {
+    final key = '$x:$y';
+    final pending = _pending[key];
+    final letter = pending ?? board[key];
+    final isCenter = x == WtGame.center && y == WtGame.center && board.isEmpty;
+    final dark = (x + y).isOdd;
+    return Semantics(
+      label: 'word tile square $x $y',
+      button: true,
+      child: InkWell(
+        onTap: () {
+          if (!(game.meId == game.wtTurnId)) return;
+          if (pending != null) {
+            setState(() {
+              _pending.remove(key);
+              _selected = null;
+            });
+            return;
+          }
+          if (letter != null) return; // occupied by a confirmed tile
+          if (_selected == null) return;
+          setState(() {
+            _pending[key] = _selected!;
+            _selected = null;
+          });
+        },
+        child: Container(
+          width: sq,
+          height: sq,
+          decoration: BoxDecoration(
+            color: dark
+                ? const Color(0xFFB8A98A)
+                : const Color(0xFFE8DCC0),
+            border: Border.all(
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25),
+              width: 0.5,
+            ),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (isCenter)
+                Text('★',
+                    style: TextStyle(
+                        fontSize: sq * 0.55,
+                        color: theme.colorScheme.primary)),
+              if (letter != null)
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      letter,
+                      style: TextStyle(
+                        fontSize: sq * 0.5,
+                        fontWeight: FontWeight.bold,
+                        color: pending != null
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      '${WtGame.values[letter] ?? 0}',
+                      style: TextStyle(fontSize: sq * 0.24),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _wtChip(String letter, int index, bool myTurn, ThemeData theme) {
+    return InkWell(
+      onTap: () {
+        if (!myTurn) return;
+        setState(() {
+          _selected = _selected == '$letter#$index' ? null : '$letter#$index';
+        });
+      },
+      child: Container(
+        width: 40,
+        height: 44,
+        decoration: BoxDecoration(
+          color: _selected == '$letter#$index'
+              ? theme.colorScheme.primary
+              : theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: theme.colorScheme.outline),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              letter,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _selected == '$letter#$index'
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
+            Text(
+              '${WtGame.values[letter] ?? 0}',
+              style: TextStyle(
+                fontSize: 10,
+                color: _selected == '$letter#$index'
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _play() {
+    final tiles = <List<dynamic>>[
+      for (final e in _pending.entries)
+        [
+          int.parse(e.key.split(':')[0]),
+          int.parse(e.key.split(':')[1]),
+          e.value,
+        ],
+    ]..sort((a, b) {
+        if (a[0] != b[0]) return (a[0] as int).compareTo(b[0] as int);
+        return (a[1] as int).compareTo(b[1] as int);
+      });
+    if (game.wtTryPlay(tiles)) {
+      setState(() {
+        _pending.clear();
+        _selected = null;
+      });
+    }
+  }
+}
+
+class WtResultsBanner extends StatelessWidget {
+  const WtResultsBanner({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    String nameOf(String id) =>
+        g.players.where((p) => p.id == id).firstOrNull?.name ?? id;
+    final winnerName = g.wtWinner == 'draw' || g.wtWinner.isEmpty
+        ? 'Draw'
+        : nameOf(g.wtWinner);
+    return Column(
+      children: [
+        Text(
+          g.wtWinner == 'draw' ? 'DRAW' : '$winnerName WINS',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            for (var i = 0; i < g.wtSeats.length; i++)
+              '${nameOf(g.wtSeats[i])} ${g.wtScoreOf(i)}',
+          ].join(' · '),
+          style: theme.textTheme.titleMedium,
+        ),
+      ],
     );
   }
 }

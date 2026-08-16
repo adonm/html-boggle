@@ -1,11 +1,11 @@
 /**
- * e2e-chess.mjs - Capture Chess test:
- *   two players join, pick chess, ready up, start. White's first move is made
- *   through the real UI (tap squares); a third browser joins mid-game and
- *   spectates. Black wins with the capture-the-king fool's mate; all three
- *   clients must agree on the move log and the winner.
+ * e2e-go.mjs - Go (9x9) test:
+ *   two players join, pick Go, ready up, start. Black's first stone goes
+ *   through the real UI (tap the board); a capture sequence follows via
+ *   hooks (white a1 is captured by black a2), then pass-pass ends the game.
+ *   Both clients must agree on the move log, the winner, and area scoring.
  *
- * Run:  mise run test-chess
+ * Run:  mise run test-go
  */
 
 import { createRequire } from "node:module";
@@ -47,7 +47,7 @@ function findShell() {
 const SHELL = findShell();
 const PORT = 9000 + Math.floor(Math.random() * 500);
 const BASE = `http://localhost:${PORT}`;
-const ROOM = "chss" + Date.now().toString(36).slice(-6);
+const ROOM = "gost" + Date.now().toString(36).slice(-6);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CHROMIUM_ARGS = [
@@ -102,7 +102,7 @@ const server = spawn(
   }
 }
 
-let browserA, browserB, browserC;
+let browserA, browserB;
 try {
   browserA = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
   browserB = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
@@ -120,8 +120,7 @@ try {
     return a.players === 2 && b.players === 2 ? { a, b } : null;
   }, 90_000, "players to connect");
 
-  await pageA.evaluate(() => window.__boggleDebugSetMode("chess"));
-  // ready up (retry: a ready toggle can race the first gossip connect)
+  await pageA.evaluate(() => window.__boggleDebugSetMode("go"));
   for (let attempt = 0; attempt < 4; attempt++) {
     if (!(await state(pageA))?.myReady) {
       await pageA.evaluate(() => window.__boggleDebugReady(""));
@@ -137,94 +136,73 @@ try {
   await waitFor(async () => {
     const a = await state(pageA);
     const b = await state(pageB);
-    return a.phase === "play" && a.mode === "chess" && b.phase === "play" && b.mode === "chess"
+    return a.phase === "play" && a.mode === "go" && b.phase === "play" && b.mode === "go"
       ? { a, b }
       : null;
-  }, 30_000, "chess round to start on both pages");
+  }, 30_000, "go round to start on both pages");
 
-  // Roles are canonical: sorted node ids - white = smallest, black = next.
   let a = await state(pageA);
-  const b0 = await state(pageB);
-  if (JSON.stringify(a.pids.sort()) !== JSON.stringify(b0.pids.sort())) {
-    fail("player lists disagree before the game starts");
-  }
-  const whiteId = [...a.pids].sort()[0];
-  const blackId = [...a.pids].sort()[1];
-  const whitePage = a.me === whiteId ? pageA : pageB;
-  const blackPage = whitePage === pageA ? pageB : pageA;
+  const blackPage = a.me === a.goBlack ? pageA : pageB;
+  const whitePage = blackPage === pageA ? pageB : pageA;
   console.log(
-    "  white:",
-    whitePage === pageA ? "Alice" : "Bob",
-    "| black:",
-    blackPage === pageA ? "Alice" : "Bob",
+    "  black:", blackPage === pageA ? "Alice" : "Bob",
+    "| white:", whitePage === pageA ? "Alice" : "Bob",
   );
 
-  // White's first move through the real UI: tap f2, then f3.
-  await whitePage.getByText(/chess square f2/).click();
-  await sleep(300);
-  await whitePage.getByText(/chess square f3/).click();
+  // Black's first stone through the real UI: tap the c9 cell on the board.
+  const cell = blackPage.getByText(/go cell c9/);
+  await waitFor(async () => ((await cell.count()) > 0 ? true : null), 15_000, "go board");
+  await cell.click();
   await waitFor(async () =>
-    ((await state(blackPage))?.chessMoves.includes("f2f3") ? true : null),
-  20_000, "white's UI move to reach black");
+    ((await state(whitePage))?.goMoves.includes("c9") ? true : null),
+  20_000, "black's UI stone to reach white");
 
-  // Fool's mate, capture-the-king style: ...e5 g4 Qh4 a3 Qxe1.
-  // Each move must arrive at the opponent before their reply, or the
-  // turn check on the sender's own (lagging) log rejects it.
-  async function move(page, from, to, otherPage) {
-    await page.evaluate(
-      (args) => window.__boggleDebugChessMove(args[0], args[1]),
-      [from, to],
-    );
+  // capture sequence: W a1, B b1, W d1, B a2 captures white a1
+  async function goMove(page, coord, otherPage) {
+    if (coord === "pass") {
+      await page.evaluate(() => window.__boggleDebugGoPass(""));
+    } else {
+      await page.evaluate((c) => window.__boggleDebugGoMove(c), coord);
+    }
     await waitFor(async () =>
-      ((await state(otherPage))?.chessMoves.endsWith(from + to) ? true : null),
-    20_000, `move ${from}${to} to sync`);
+      ((await state(otherPage))?.goMoves.endsWith(coord) ? true : null),
+    20_000, `go move ${coord} to sync`);
     await waitFor(async () =>
-      ((await state(page))?.chessMoves.endsWith(from + to) ? true : null),
-    20_000, `move ${from}${to} applied locally`);
+      ((await state(page))?.goMoves.endsWith(coord) ? true : null),
+    20_000, `go move ${coord} applied locally`);
   }
-  await move(blackPage, "e7", "e5", whitePage);
-  await move(whitePage, "g2", "g4", blackPage);
-  await move(blackPage, "d8", "h4", whitePage);
-  await move(whitePage, "a2", "a3", blackPage);
-  await move(blackPage, "h4", "e1", whitePage);
-
-  // Spectator joins mid-game and must see the same board and moves.
-  browserC = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
-  const pageC = await (await browserC.newContext({ viewport: { width: 960, height: 700 } })).newPage();
-  await pageC.goto(BASE, { waitUntil: "load", timeout: 60_000 });
-  await waitFor(() => state(pageC), 90_000, "spectator booted");
-  await pageC.evaluate((r) => window.__boggleDebugJoin(r, "Carl"), ROOM);
-  await waitFor(async () => ((await state(pageC))?.players === 3 ? true : null), 60_000, "spectator to join");
+  await goMove(whitePage, "a1", blackPage);
+  await goMove(blackPage, "b1", whitePage);
+  await goMove(whitePage, "d1", blackPage);
+  await goMove(blackPage, "a2", whitePage);
+  // two passes end the game
+  await goMove(whitePage, "pass", blackPage);
+  await goMove(blackPage, "pass", whitePage);
 
   await waitFor(async () => {
     const x = await state(pageA);
     const y = await state(pageB);
     return x.phase === "results" && y.phase === "results" ? { x, y } : null;
-  }, 30_000, "king capture to end the game");
+  }, 30_000, "pass-pass to end the game");
 
-  // poll until everyone (including the spectator) agrees
+  // poll until both sides agree
   const settle = await waitFor(async () => {
     const x = await state(pageA);
     const y = await state(pageB);
-    const z = await state(pageC);
-    const blackIdx = x.pids.indexOf(blackId);
-    const whiteIdx = x.pids.indexOf(whiteId);
+    const blackIdx = x.pids.indexOf(x.goBlack);
     const ok =
-      x.chessWinner === "black" && y.chessWinner === "black" && z.chessWinner === "black" &&
-      x.chessMoves === "f2f3,e7e5,g2g4,d8h4,a2a3,h4e1" &&
-      x.chessMoves === y.chessMoves && y.chessMoves === z.chessMoves &&
-      x.plist[blackIdx]?.score === 1 && x.plist[whiteIdx]?.score === 0 &&
-      JSON.stringify(x.plist) === JSON.stringify(y.plist) &&
-      JSON.stringify(y.plist) === JSON.stringify(z.plist) &&
-      z.players === 3 && z.phase === "results"; // spectator sees it all
-    return ok ? { x, y, z, ok } : null;
-  }, 30_000, "all three clients to agree");
+      x.goWinner === "black" && y.goWinner === "black" &&
+      x.goMoves === "c9,a1,b1,d1,a2,pass,pass" &&
+      x.goMoves === y.goMoves &&
+      x.plist[blackIdx]?.score === 1 && // black scored the win
+      JSON.stringify(x.plist) === JSON.stringify(y.plist);
+    return ok ? { x, y, ok } : null;
+  }, 30_000, "go results to agree on both pages");
 
-  const { x: fa, y: fb, z: fc, ok } = settle;
-  console.log("A:", JSON.stringify({ winner: fa.chessWinner, synced: fa.synced, sent: fa.stateSent, recv: fa.stateReceived }));
-  console.log("B:", JSON.stringify({ winner: fb.chessWinner, synced: fb.synced, sent: fb.stateSent, recv: fb.stateReceived }));
-  console.log("C:", JSON.stringify({ winner: fc.chessWinner, moves: fc.chessMoves, phase: fc.phase, synced: fc.synced, sent: fc.stateSent, recv: fc.stateReceived, players: fc.players }));
-  console.log(ok ? "PASS: capture-the-king game with a mid-game spectator ✅" : "FAIL");
+  const { x: ga, y: gb, ok } = settle;
+  console.log("A:", JSON.stringify({ winner: ga.goWinner, moves: ga.goMoves }));
+  console.log("B:", JSON.stringify({ winner: gb.goWinner, moves: gb.goMoves }));
+  console.log(ok ? "PASS: go round with a capture, pass-pass end, scores agree ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {
   console.error(err.message ?? err);
@@ -234,6 +212,5 @@ try {
     b?.close().catch(() => {});
   await closeSafe(browserA);
   await closeSafe(browserB);
-  await closeSafe(browserC);
   server.kill();
 }

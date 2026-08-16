@@ -190,18 +190,21 @@ try {
     const b = await state(pageB);
     return a.phase === "results" && b.phase === "results" ? { a, b } : null;
   }, 30_000, "round to end on both pages");
-  await sleep(2000); // let the host state settle
 
-  const a = await state(pageA);
-  const b = await state(pageB);
+  // poll until both sides agree (messages can lag the results phase)
+  const settle = await waitFor(async () => {
+    const a = await state(pageA);
+    const b = await state(pageB);
+    const ok =
+      a.sgDupes === w1 && // exactly the overlap cancels
+      a.sgScore === 2 && // w2 + w3 unique for A
+      b.sgScore === 0 && // B's only word was the duplicate
+      JSON.stringify(a.sgScores) === JSON.stringify(b.sgScores); // both agree
+    return ok ? { a, b, ok } : null;
+  }, 20_000, "tally to agree on both pages");
+  const { a, b, ok } = settle;
   console.log("A:", JSON.stringify({ score: a.sgScore, count: a.sgCount, dupes: a.sgDupes }));
   console.log("B:", JSON.stringify({ score: b.sgScore, count: b.sgCount, dupes: b.sgDupes }));
-
-  const ok =
-    a.sgDupes === w1 && // exactly the overlap cancels
-    a.sgScore === 2 && // w2 + w3 unique for A
-    b.sgScore === 0 && // B's only word was the duplicate
-    JSON.stringify(a.sgScores) === JSON.stringify(b.sgScores); // both sides agree
   console.log(ok ? "PASS: scattergories round with duplicate cancellation ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {

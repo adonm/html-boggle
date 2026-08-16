@@ -1,15 +1,15 @@
 /**
- * e2e-chess.mjs - Capture Chess test:
- *   two players join, pick chess, ready up, start. White's first move is made
- *   through the real UI (tap squares); a third browser joins mid-game and
- *   spectates. Black wins with the capture-the-king fool's mate; all three
- *   clients must agree on the move log and the winner.
+ * e2e-wt.mjs - Word Tiles (scrabble-style) test:
+ *   two players join, pick Word Tiles, ready up, start. The first seat's
+ *   rack is read from the served bag; a dictionary word it can spell is
+ *   played through the center star via hook, then pass-pass ends the game.
+ *   Both clients must agree on the derived scores and the winner.
  *
- * Run:  mise run test-chess
+ * Run:  mise run test-wt
  */
 
 import { createRequire } from "node:module";
-import { globSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 
 function loadPlaywright() {
@@ -47,7 +47,7 @@ function findShell() {
 const SHELL = findShell();
 const PORT = 9000 + Math.floor(Math.random() * 500);
 const BASE = `http://localhost:${PORT}`;
-const ROOM = "chss" + Date.now().toString(36).slice(-6);
+const ROOM = "wtts" + Date.now().toString(36).slice(-6);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CHROMIUM_ARGS = [
@@ -84,6 +84,17 @@ async function waitFor(fn, timeoutMs, what) {
   fail(`timed out waiting for ${what}`);
 }
 
+// can the word be spelled with the multiset of rack letters?
+function spellable(word, rack) {
+  const letters = rack.join("").toLowerCase().split("");
+  for (const ch of word.toLowerCase()) {
+    const i = letters.indexOf(ch);
+    if (i < 0) return false;
+    letters.splice(i, 1);
+  }
+  return true;
+}
+
 console.log("starting server on :" + PORT + " ...");
 const server = spawn(
   "deno",
@@ -102,7 +113,7 @@ const server = spawn(
   }
 }
 
-let browserA, browserB, browserC;
+let browserA, browserB;
 try {
   browserA = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
   browserB = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
@@ -120,8 +131,7 @@ try {
     return a.players === 2 && b.players === 2 ? { a, b } : null;
   }, 90_000, "players to connect");
 
-  await pageA.evaluate(() => window.__boggleDebugSetMode("chess"));
-  // ready up (retry: a ready toggle can race the first gossip connect)
+  await pageA.evaluate(() => window.__boggleDebugSetMode("wordtiles"));
   for (let attempt = 0; attempt < 4; attempt++) {
     if (!(await state(pageA))?.myReady) {
       await pageA.evaluate(() => window.__boggleDebugReady(""));
@@ -137,94 +147,66 @@ try {
   await waitFor(async () => {
     const a = await state(pageA);
     const b = await state(pageB);
-    return a.phase === "play" && a.mode === "chess" && b.phase === "play" && b.mode === "chess"
+    return a.phase === "play" && a.mode === "wordtiles" &&
+        b.phase === "play" && b.mode === "wordtiles" && a.wtMyRack
       ? { a, b }
       : null;
-  }, 30_000, "chess round to start on both pages");
+  }, 30_000, "word tiles round to start on both pages");
 
-  // Roles are canonical: sorted node ids - white = smallest, black = next.
+  // first seat plays a 3-4 letter word through the center star
   let a = await state(pageA);
-  const b0 = await state(pageB);
-  if (JSON.stringify(a.pids.sort()) !== JSON.stringify(b0.pids.sort())) {
-    fail("player lists disagree before the game starts");
-  }
-  const whiteId = [...a.pids].sort()[0];
-  const blackId = [...a.pids].sort()[1];
-  const whitePage = a.me === whiteId ? pageA : pageB;
-  const blackPage = whitePage === pageA ? pageB : pageA;
-  console.log(
-    "  white:",
-    whitePage === pageA ? "Alice" : "Bob",
-    "| black:",
-    blackPage === pageA ? "Alice" : "Bob",
+  const firstPage = a.wtSeats ? (a.me === a.wtSeats[0] ? pageA : pageB) : pageA;
+  const first = await state(firstPage);
+  const rack = first.wtMyRack.split(",").filter(Boolean);
+  const dict = readFileSync(
+    new URL("../app/assets/words.txt", import.meta.url).pathname,
+    "utf8",
+  ).split("\n").filter(Boolean);
+  const word = dict.find(
+    (w) => (w.length === 3 || w.length === 4) && spellable(w, rack),
   );
+  if (!word) fail("no playable word found in the served rack " + rack.join(""));
+  console.log("  rack:", rack.join(","), "| playing:", word.toUpperCase());
 
-  // White's first move through the real UI: tap f2, then f3.
-  await whitePage.getByText(/chess square f2/).click();
-  await sleep(300);
-  await whitePage.getByText(/chess square f3/).click();
-  await waitFor(async () =>
-    ((await state(blackPage))?.chessMoves.includes("f2f3") ? true : null),
-  20_000, "white's UI move to reach black");
-
-  // Fool's mate, capture-the-king style: ...e5 g4 Qh4 a3 Qxe1.
-  // Each move must arrive at the opponent before their reply, or the
-  // turn check on the sender's own (lagging) log rejects it.
-  async function move(page, from, to, otherPage) {
-    await page.evaluate(
-      (args) => window.__boggleDebugChessMove(args[0], args[1]),
-      [from, to],
-    );
-    await waitFor(async () =>
-      ((await state(otherPage))?.chessMoves.endsWith(from + to) ? true : null),
-    20_000, `move ${from}${to} to sync`);
-    await waitFor(async () =>
-      ((await state(page))?.chessMoves.endsWith(from + to) ? true : null),
-    20_000, `move ${from}${to} applied locally`);
+  // place the word vertically through the center: (5,5)..(5,5+len-1)
+  const tiles = [];
+  for (let i = 0; i < word.length; i++) {
+    tiles.push([5, 5 + i, word[i].toUpperCase()]);
   }
-  await move(blackPage, "e7", "e5", whitePage);
-  await move(whitePage, "g2", "g4", blackPage);
-  await move(blackPage, "d8", "h4", whitePage);
-  await move(whitePage, "a2", "a3", blackPage);
-  await move(blackPage, "h4", "e1", whitePage);
+  await firstPage.evaluate((t) => window.__boggleDebugWtPlay(JSON.stringify(t)), tiles);
+  await waitFor(async () => ((await state(firstPage))?.wtMoves === 1 ? true : null), 20_000, "play to register");
+  await sleep(1200); // let it sync to the other client
 
-  // Spectator joins mid-game and must see the same board and moves.
-  browserC = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
-  const pageC = await (await browserC.newContext({ viewport: { width: 960, height: 700 } })).newPage();
-  await pageC.goto(BASE, { waitUntil: "load", timeout: 60_000 });
-  await waitFor(() => state(pageC), 90_000, "spectator booted");
-  await pageC.evaluate((r) => window.__boggleDebugJoin(r, "Carl"), ROOM);
-  await waitFor(async () => ((await state(pageC))?.players === 3 ? true : null), 60_000, "spectator to join");
-
+  // pass-pass ends the game
+  const secondPage = firstPage === pageA ? pageB : pageA;
+  await secondPage.evaluate(() => window.__boggleDebugWtPass(""));
+  await waitFor(async () => ((await state(firstPage))?.wtMoves === 2 ? true : null), 20_000, "pass to sync");
+  await firstPage.evaluate(() => window.__boggleDebugWtPass(""));
   await waitFor(async () => {
     const x = await state(pageA);
     const y = await state(pageB);
     return x.phase === "results" && y.phase === "results" ? { x, y } : null;
-  }, 30_000, "king capture to end the game");
+  }, 30_000, "pass-pass to end the game");
 
-  // poll until everyone (including the spectator) agrees
+  // poll until both sides agree
   const settle = await waitFor(async () => {
     const x = await state(pageA);
     const y = await state(pageB);
-    const z = await state(pageC);
-    const blackIdx = x.pids.indexOf(blackId);
-    const whiteIdx = x.pids.indexOf(whiteId);
+    const seat0 = x.wtSeats[0];
     const ok =
-      x.chessWinner === "black" && y.chessWinner === "black" && z.chessWinner === "black" &&
-      x.chessMoves === "f2f3,e7e5,g2g4,d8h4,a2a3,h4e1" &&
-      x.chessMoves === y.chessMoves && y.chessMoves === z.chessMoves &&
-      x.plist[blackIdx]?.score === 1 && x.plist[whiteIdx]?.score === 0 &&
-      JSON.stringify(x.plist) === JSON.stringify(y.plist) &&
-      JSON.stringify(y.plist) === JSON.stringify(z.plist) &&
-      z.players === 3 && z.phase === "results"; // spectator sees it all
-    return ok ? { x, y, z, ok } : null;
-  }, 30_000, "all three clients to agree");
+      x.wtWinner === seat0 && y.wtWinner === seat0 &&
+      x.wtScores[seat0] > 0 && y.wtScores[seat0] === x.wtScores[seat0] &&
+      (x.wtScores[x.wtSeats[1]] ?? 0) === 0 &&
+      JSON.stringify(x.wtScores) === JSON.stringify(y.wtScores) &&
+      x.plist[x.pids.indexOf(seat0)]?.score === 1 &&
+      JSON.stringify(x.plist) === JSON.stringify(y.plist);
+    return ok ? { x, y, ok } : null;
+  }, 30_000, "word tiles results to agree on both pages");
 
-  const { x: fa, y: fb, z: fc, ok } = settle;
-  console.log("A:", JSON.stringify({ winner: fa.chessWinner, synced: fa.synced, sent: fa.stateSent, recv: fa.stateReceived }));
-  console.log("B:", JSON.stringify({ winner: fb.chessWinner, synced: fb.synced, sent: fb.stateSent, recv: fb.stateReceived }));
-  console.log("C:", JSON.stringify({ winner: fc.chessWinner, moves: fc.chessMoves, phase: fc.phase, synced: fc.synced, sent: fc.stateSent, recv: fc.stateReceived, players: fc.players }));
-  console.log(ok ? "PASS: capture-the-king game with a mid-game spectator ✅" : "FAIL");
+  const { x: wa, y: wb, ok } = settle;
+  console.log("A:", JSON.stringify({ winner: wa.wtWinner, scores: wa.wtScores }));
+  console.log("B:", JSON.stringify({ winner: wb.wtWinner, scores: wb.wtScores }));
+  console.log(ok ? "PASS: word tiles play through the star, scores agree ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {
   console.error(err.message ?? err);
@@ -234,6 +216,5 @@ try {
     b?.close().catch(() => {});
   await closeSafe(browserA);
   await closeSafe(browserB);
-  await closeSafe(browserC);
   server.kill();
 }

@@ -36,8 +36,13 @@ description + how-to guide right in the room's picker:
 - **Capture Chess** — chess with a twist: capture the king to win (no check/checkmate
   bookkeeping, no castling, pawns auto-promote to queens). Two players; everyone else watches
   as a spectator. Moves are a replicated log, so everyone sees the same board.
-- **Go (9×9)** — coming soon.
-- **Word Tiles** — scrabble-style crossword with a 7-tile rack, coming soon.
+- **Go (9×9)** — classic Go: place stones, surround groups to capture, simple ko. Two
+  consecutive passes end the game; area scoring (stones + surrounded territory) decides it.
+  Two players, others spectate.
+- **Word Tiles** — scrabble-style crossword on an 11×11 board: a 7-tile rack per player, the
+  opening play must cover the center star (doubled), a 7-tile play earns +50, and every
+  formed word must be in the dictionary. Everyone in the room plays; the bag order is served
+  at round start, so racks and scores derive identically on every client.
 
 Every client keeps its **identity and room cached locally**: the iroh secret key, your name,
 and the last room code persist in `localStorage`, so a closed tab (even a crashed one) can
@@ -95,6 +100,8 @@ mise run test-scatter  # e2e: scattergories round, duplicate cancellation
 mise run test-sketch   # e2e: sketchit draw + guess round
 mise run test-chess    # e2e: capture chess with a mid-game spectator
 mise run test-resume   # e2e: reload auto-rejoins the room; leave clears the cache
+mise run test-go       # e2e: go with a capture and pass-pass end
+mise run test-wt       # e2e: word tiles play through the star
 ```
 
 Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — the dev
@@ -143,10 +150,13 @@ repeats (periodic hellos, claim retries) would otherwise be dropped.
 | `award` | host | word accepted: `word`, `points` |
 | `reject`| host | word denied: `reason` = `taken` / `invalid` |
 | `state` | host | authoritative snapshot (members, scores, words, phase, deadline) — sent when membership changes, every 10 s during play, and at round end |
+| `wantState` | unsynced joiners | explicit snapshot request, retried every 2 s until someone answers (gossip links can be transiently one-way) |
 | `sgSubmit` | players | scattergories submission (`word`) |
 | `sketchStroke` / `sketchClear` | drawer | canvas stroke deltas (`id`, `color`, `width`, `pts`) / clear |
 | `sketchGuess` / `sketchSolved` | guessers / host | a guess; the host arbitrates the exact match and broadcasts the solved word |
 | `chessMove` | current player | `from`, `to` (e.g. `e2`/`e4`) appended to the replicated move log |
+| `goMove` / `goPass` / `goResign` | current player | a stone coordinate, a pass (two in a row end the game), or a resignation |
+| `wtMove` / `wtPass` | current player | tile placements `[x, y, letter]` (validated + scored deterministically) or a pass |
 
 Scoring is classic Boggle: 3–4 letters = 1, 5 = 2, 6 = 3, 7 = 5, 8+ = 11. Rounds are 3
 minutes; scores accumulate, found words reset each round. Word validation uses a public-domain
@@ -163,6 +173,8 @@ word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as
   until acknowledged and host snapshots self-heal state after connection drops. Your iroh
   identity (secret key), name, and last room persist in `localStorage`, so reloading or
   returning later rejoins the room as the same player; "Leave room" clears the cache.
+  Fresh joiners stay quarantined from hosting until they adopt a snapshot, and keep asking
+  for one until a synced player answers, so a late spectator can never regress a live game.
 - Sketch strokes are ephemeral: a mid-round reconnect resyncs the word/drawer/scores but
   not the in-progress canvas.
 - The dictionary is client-side; there is no anti-cheat. This is a party game.

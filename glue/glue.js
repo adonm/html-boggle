@@ -262,6 +262,8 @@ const glue = {
 };
 
 window.__boggleGlue = glue;
+/** Debug: JSON stats of everything received by type. */
+window.__boggleGlueStats = () => JSON.stringify(glue.stats);
 
 window.addEventListener("beforeunload", () => {
   if (glue.channel) {

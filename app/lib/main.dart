@@ -70,6 +70,33 @@ void _installDebugHooks(Game game) {
       game.chessTryMove(from.toDart, to.toDart);
     }).toJS,
   );
+  _window.setProperty(
+    '__boggleDebugGoMove'.toJS,
+    ((JSString coord) {
+      game.goTryMove(coord.toDart);
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugGoPass'.toJS,
+    ((JSAny _) {
+      game.goPassTurn();
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugWtPlay'.toJS,
+    ((JSString tilesJson) {
+      final raw = jsonDecode(tilesJson.toDart);
+      if (raw is List) {
+        game.wtTryPlay([for (final t in raw) if (t is List) t]);
+      }
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugWtPass'.toJS,
+    ((JSAny _) {
+      game.wtPassTurn();
+    }).toJS,
+  );
 }
 
 Future<void> main() async {

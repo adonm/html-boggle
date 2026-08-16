@@ -14,10 +14,15 @@ import 'package:flutter/services.dart';
 
 import 'board.dart';
 import 'chess.dart';
+import 'go.dart';
 import 'net.dart';
+import 'wordtiles.dart';
 
 @JS('window.localStorage')
 external JSObject get _storage;
+
+@JS('window')
+external JSObject get _window;
 
 enum Phase { lobby, joining, room, play, results }
 
@@ -52,10 +57,14 @@ extension GameModeInfo on GameMode {
               'everyone else spectates.',
         GameMode.go =>
           'Go on a 9×9 board: place stones, capture groups by surrounding them, '
-              'simple ko rule. Two players, others spectate.',
+              'simple ko rule. Two consecutive passes end the game; area scoring '
+              '(stones + surrounded territory) decides the winner. Two players, '
+              'others spectate.',
         GameMode.wordtiles =>
           'Scrabble-style crossword: build words from your 7-tile rack onto the '
-              'board, connecting to existing letters. Points from word length.',
+              'board, connecting to existing letters. Every formed word must be '
+              'in the dictionary; the opening play through the center star is '
+              'doubled and a 7-tile play earns +50.',
       };
 
   String get howTo => switch (this) {
@@ -71,11 +80,17 @@ extension GameModeInfo on GameMode {
         GameMode.chess =>
           'Tap a piece, then a highlighted square to move. Capturing the enemy '
               'king ends the game immediately.',
-        GameMode.go => 'Coming soon.',
-        GameMode.wordtiles => 'Coming soon.',
+        GameMode.go =>
+          'Tap an empty intersection to place a stone. Surround enemy groups to '
+              'capture them. PASS when you have nothing useful - two passes in a '
+              'row end the game.',
+        GameMode.wordtiles =>
+          'Tap a rack tile, then an empty square to place it (tap a placed tile '
+              'to recall it). PLAY submits - every formed word must be real. '
+              'PASS to skip your turn.',
       };
 
-  bool get implemented => this != GameMode.go && this != GameMode.wordtiles;
+  bool get implemented => true;
 
   String get wireName => name;
 }
@@ -166,6 +181,18 @@ class Game extends ChangeNotifier {
   bool get allReady => players.isNotEmpty && players.every((p) => p.ready);
   int get readyCount => players.where((p) => p.ready).length;
   String _lastHostId = '';
+  bool _syncedFromOthers = false; // adopted state/hello from another player
+  DateTime? lastWantStateAt;
+  int stateSent = 0;
+  int stateReceived = 0;
+  final List<String> debugLog = [];
+
+  static const Duration wantStateInterval = Duration(seconds: 2);
+
+  void _log(String what) {
+    debugLog.add('${DateTime.now().millisecondsSinceEpoch % 100000} $what');
+    if (debugLog.length > 40) debugLog.removeAt(0);
+  }
 
   // Scattergories state (submissions per node id; scoring is local +
   // deterministic: unique words count, duplicates cancel).
@@ -187,6 +214,19 @@ class Game extends ChangeNotifier {
   // late-joining spectator can never steal one and desync the move log.
   String chessWhite = '';
   String chessBlack = '';
+
+  // Go (9x9) state: replicated move log, seats pinned at round start.
+  final List<String> goMoves = [];
+  String goWinner = '';
+  String goBlack = '';
+  String goWhite = '';
+
+  // Word Tiles state: replicated move log + the bag order served by the
+  // round starter; racks and scores derive deterministically from both.
+  final List<dynamic> wtMoves = [];
+  List<String> wtBag = [];
+  List<String> wtSeats = [];
+  String wtWinner = '';
 
   /// Canonical player order (by node id) - identical on every client, used
   /// for role assignment (chess white/black, sketch drawer rotation).
@@ -302,6 +342,8 @@ class Game extends ChangeNotifier {
       players
         ..clear()
         ..add(Player(meId, nm)..isMe = true);
+      _syncedFromOthers = false;
+      lastWantStateAt = null;
       pendingWord = null;
       phase = Phase.room;
       lastHello = null;
@@ -364,6 +406,11 @@ class Game extends ChangeNotifier {
       send({'t': 'claim', 'node': meId, 'word': word, 'name': myName});
 
   void sendState() {
+    // Quarantine: a fresh joiner whose node id makes it the host must first
+    // adopt the room's state from someone else, or its pre-sync snapshot
+    // (empty players, room phase, future deadline) would regress everyone.
+    if (players.length > 1 && !_syncedFromOthers) return;
+    stateSent++;
     final ph = switch (phase) {
       Phase.play => 'play',
       Phase.results => 'results',
@@ -386,14 +433,26 @@ class Game extends ChangeNotifier {
       'chessWinner': chessWinner,
       'chessWhite': chessWhite,
       'chessBlack': chessBlack,
+      'goMoves': goMoves,
+      'goWinner': goWinner,
+      'goBlack': goBlack,
+      'goWhite': goWhite,
+      'wtMoves': wtMoves,
+      'wtBag': wtBag.join(''),
+      'wtSeats': wtSeats,
+      'wtWinner': wtWinner,
       'players': players.map((p) => p.toJson()).toList(),
     });
   }
 
   void startRound() {
     if ((phase != Phase.room && phase != Phase.results) || !allReady) return;
-    if (mode == GameMode.chess && players.length < 2) {
-      showToast('Chess needs 2 players (others can spectate)');
+    // Whoever starts the round serves authoritative state from here on.
+    _syncedFromOthers = true;
+    final needsTwo = mode == GameMode.chess || mode == GameMode.go ||
+        mode == GameMode.wordtiles;
+    if (needsTwo && players.length < 2) {
+      showToast('${mode.title} needs 2 players (others can spectate)');
       return;
     }
     deadline = DateTime.now().add(const Duration(milliseconds: roundMs));
@@ -441,6 +500,37 @@ class Game extends ChangeNotifier {
           'white': chessWhite,
           'black': chessBlack,
         });
+      case GameMode.go:
+        goMoves.clear();
+        goWinner = '';
+        final gseats = sortedPlayers;
+        goBlack = gseats[0].id;
+        goWhite = gseats.length > 1 ? gseats[1].id : '';
+        deadline = DateTime.now().add(const Duration(hours: 1));
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'black': goBlack,
+          'white': goWhite,
+        });
+      case GameMode.wordtiles:
+        wtMoves.clear();
+        wtWinner = '';
+        wtSeats = [for (final p in sortedPlayers) p.id];
+        wtBag = WtGame.shuffledBag();
+        deadline = DateTime.now().add(const Duration(hours: 1));
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'bag': wtBag.join(''),
+          'seats': wtSeats,
+        });
       case GameMode.boggle:
         board = generateBoard(_rng);
         finder.board = board;
@@ -452,9 +542,6 @@ class Game extends ChangeNotifier {
           'mode': mode.wireName,
           'board': board.join(','),
         });
-      case GameMode.go:
-      case GameMode.wordtiles:
-        break; // not implemented
     }
     _applyStart();
     notifyListeners();
@@ -472,6 +559,8 @@ class Game extends ChangeNotifier {
     final label = switch (mode) {
       GameMode.sketchit => 'Round $round - start drawing!',
       GameMode.chess => 'Round $round - white moves first',
+      GameMode.go => 'Round $round - black moves first',
+      GameMode.wordtiles => 'Round $round - first play covers the star',
       GameMode.scattergories => 'Round $round - words starting with $sgLetter!',
       _ => 'Round $round - find words!',
     };
@@ -620,7 +709,9 @@ class Game extends ChangeNotifier {
         final name = (m['name'] as String?) ?? '';
         if (p == null) {
           players.add(Player(node, name));
-          if (isHost) sendState();
+          // Any player who knows the room answers a newcomer with a state
+          // snapshot (the host may have just changed hands to the newcomer).
+          if (_syncedFromOthers) sendState();
         } else {
           if (name.isNotEmpty) p.name = name;
           p.lastSeen = DateTime.now();
@@ -628,6 +719,8 @@ class Game extends ChangeNotifier {
       case 'bye':
         _removePlayer(node);
       case 'start':
+        // a start message is itself an authoritative round sync
+        _syncedFromOthers = true;
         final dl = m['deadline'];
         if (dl is num) {
           deadline = DateTime.fromMillisecondsSinceEpoch(dl.toInt());
@@ -648,6 +741,20 @@ class Game extends ChangeNotifier {
           chessWinner = '';
           chessWhite = (m['white'] as String?) ?? '';
           chessBlack = (m['black'] as String?) ?? '';
+        } else if (mode == GameMode.go) {
+          goMoves.clear();
+          goWinner = '';
+          goBlack = (m['black'] as String?) ?? '';
+          goWhite = (m['white'] as String?) ?? '';
+        } else if (mode == GameMode.wordtiles) {
+          wtMoves.clear();
+          wtWinner = '';
+          final bag = (m['bag'] as String?) ?? '';
+          if (bag.isNotEmpty) wtBag = bag.split('');
+          final seats = m['seats'];
+          if (seats is List) {
+            wtSeats = [for (final s in seats) if (s is String) s];
+          }
         } else {
           _adoptBoard(m);
         }
@@ -774,6 +881,23 @@ class Game extends ChangeNotifier {
       case 'chessMove':
         if (phase != Phase.play || mode != GameMode.chess) return;
         _applyChessMove(m, node);
+      case 'goMove':
+        if (phase != Phase.play || mode != GameMode.go) return;
+        _applyGoMove(m, node);
+      case 'goPass':
+        if (phase != Phase.play || mode != GameMode.go) return;
+        _applyGoPass(node);
+      case 'goResign':
+        if (phase != Phase.play || mode != GameMode.go) return;
+        if (node != goBlack && node != goWhite) return;
+        goWinner = node == goBlack ? 'white' : 'black';
+        _endGo();
+      case 'wtMove':
+        if (phase != Phase.play || mode != GameMode.wordtiles) return;
+        _applyWtMove(m, node);
+      case 'wtPass':
+        if (phase != Phase.play || mode != GameMode.wordtiles) return;
+        _applyWtPass(node);
       case 'ready':
         final p = players.where((p) => p.id == node).firstOrNull;
         if (p != null && m['ready'] is bool) {
@@ -781,45 +905,70 @@ class Game extends ChangeNotifier {
         }
       case 'state':
         _applyState(m);
+      case 'wantState':
+        // A newcomer asks for a snapshot; any synced player answers.
+        if (_syncedFromOthers) sendState();
     }
   }
 
   void _applyState(Map<String, dynamic> m) {
-    final list = m['players'];
-    if (list is List) {
-      players.clear();
-      for (final item in list) {
-        if (item is! Map) continue;
-        final id = item['node'] as String?;
-        if (id == null) continue;
-        final p = Player(id, (item['name'] as String?) ?? '');
-        p.score = (item['score'] as num?)?.toInt() ?? 0;
-        p.ready = item['ready'] == true;
-        final words = item['words'];
-        if (words is List) {
-          for (final w in words) {
-            if (w is String) p.words.add(w);
-          }
-        }
-        p.isMe = id == meId;
-        p.lastSeen = DateTime.now();
-        players.add(p);
-      }
-      if (!players.any((p) => p.id == meId)) {
-        players.add(Player(meId, myName)..isMe = true);
-      }
-    }
+    _syncedFromOthers = true;
+    stateReceived++;
+    // Never regress the players list from a peer's state that doesn't even
+    // contain that peer's own... note: adopt players only from a state that
+    // is at least as far along as ours (phase-monotonic) - see below.
     final ph = m['phase'];
-    if (ph == 'play') {
-      phase = Phase.play;
-      path.clear();
-    } else if (ph == 'results') {
-      phase = Phase.results;
-    } else {
-      phase = Phase.room;
+    final incomingPhase = ph == 'play'
+        ? Phase.play
+        : ph == 'results'
+            ? Phase.results
+            : Phase.room;
+    final phaseRank = (Phase p) => switch (p) {
+          Phase.room => 0,
+          Phase.play => 1,
+          Phase.results => 2,
+          _ => 0,
+        };
+    final adopt = phaseRank(incomingPhase) >= phaseRank(phase);
+    _log('state from ${m['node']} ph=$ph adopt=$adopt local=${phase.name}');
+    if (adopt) {
+      final list = m['players'];
+      if (list is List) {
+        players.clear();
+        for (final item in list) {
+          if (item is! Map) continue;
+          final id = item['node'] as String?;
+          if (id == null) continue;
+          final p = Player(id, (item['name'] as String?) ?? '');
+          p.score = (item['score'] as num?)?.toInt() ?? 0;
+          p.ready = item['ready'] == true;
+          final words = item['words'];
+          if (words is List) {
+            for (final w in words) {
+              if (w is String) p.words.add(w);
+            }
+          }
+          p.isMe = id == meId;
+          p.lastSeen = DateTime.now();
+          players.add(p);
+        }
+        if (!players.any((p) => p.id == meId)) {
+          players.add(Player(meId, myName)..isMe = true);
+        }
+      }
+      if (incomingPhase == Phase.play) {
+        phase = Phase.play;
+        path.clear();
+      } else if (incomingPhase == Phase.results) {
+        phase = Phase.results;
+      } else {
+        phase = Phase.room;
+      }
+      final dl = m['deadline'];
+      if (dl is num) {
+        deadline = DateTime.fromMillisecondsSinceEpoch(dl.toInt());
+      }
     }
-    final dl = m['deadline'];
-    if (dl is num) deadline = DateTime.fromMillisecondsSinceEpoch(dl.toInt());
     final r = m['round'];
     if (r is num) round = r.toInt();
     mode = modeFromWire(m['mode'] as String?);
@@ -861,6 +1010,35 @@ class Game extends ChangeNotifier {
     if (cwt is String && cwt.isNotEmpty) chessWhite = cwt;
     final cbt = m['chessBlack'];
     if (cbt is String && cbt.isNotEmpty) chessBlack = cbt;
+    final gm = m['goMoves'];
+    if (gm is List) {
+      final incoming = [for (final v in gm) if (v is String) v];
+      if (incoming.length >= goMoves.length) {
+        goMoves
+          ..clear()
+          ..addAll(incoming);
+      }
+    }
+    final gw = m['goWinner'];
+    if (gw is String && gw.isNotEmpty && goWinner.isEmpty) goWinner = gw;
+    final gb = m['goBlack'];
+    if (gb is String && gb.isNotEmpty) goBlack = gb;
+    final gwt = m['goWhite'];
+    if (gwt is String && gwt.isNotEmpty) goWhite = gwt;
+    final wm = m['wtMoves'];
+    if (wm is List && wm.length >= wtMoves.length) {
+      wtMoves
+        ..clear()
+        ..addAll(wm);
+    }
+    final wb = m['wtBag'];
+    if (wb is String && wb.isNotEmpty) wtBag = wb.split('');
+    final wseats = m['wtSeats'];
+    if (wseats is List && wseats.isNotEmpty) {
+      wtSeats = [for (final s in wseats) if (s is String) s];
+    }
+    final ww = m['wtWinner'];
+    if (ww is String && ww.isNotEmpty && wtWinner.isEmpty) wtWinner = ww;
     if (phase == Phase.play) {
       // mid-round sync: adopt the served board so everyone agrees
       _adoptBoard(m);
@@ -891,6 +1069,16 @@ class Game extends ChangeNotifier {
       if (lastHello == null || now.difference(lastHello!) >= helloInterval) {
         lastHello = now;
         sendHello();
+      }
+      // An unsynced joiner keeps asking for a state snapshot until someone
+      // answers - gossip links can be transiently one-way, so one-shot
+      // hello replies are not enough.
+      if (!_syncedFromOthers &&
+          players.length > 1 &&
+          (lastWantStateAt == null ||
+              now.difference(lastWantStateAt!) >= wantStateInterval)) {
+        lastWantStateAt = now;
+        send({'t': 'wantState', 'node': meId});
       }
       if (phase == Phase.play &&
           isHost &&
@@ -1070,6 +1258,274 @@ class Game extends ChangeNotifier {
     }
   }
 
+  // -------------------------------------------------------------------- go
+
+  bool get goBlackTurn => goMoves.length.isEven; // black moves first
+  String get goTurnId => goBlackTurn ? goBlack : goWhite;
+
+  /// Current player: place a stone at a coordinate ("b3").
+  bool goTryMove(String coord) {
+    if (phase != Phase.play || mode != GameMode.go) return false;
+    if (goWinner.isNotEmpty || meId != goTurnId) return false;
+    final r = GoGame.replay(goMoves);
+    final idx = GoGame.sq(coord);
+    if (GoGame.apply(r.board, r.prev, idx, goBlackTurn) == null) {
+      showToast('illegal move');
+      return false;
+    }
+    goMoves.add(coord);
+    send({'t': 'goMove', 'node': meId, 'coord': coord});
+    notifyListeners();
+    return true;
+  }
+
+  void goPassTurn() {
+    if (phase != Phase.play || mode != GameMode.go) return;
+    if (goWinner.isNotEmpty || meId != goTurnId) return;
+    goMoves.add('pass');
+    send({'t': 'goPass', 'node': meId});
+    _checkGoEnd();
+    notifyListeners();
+  }
+
+  void goResign() {
+    if (phase != Phase.play || mode != GameMode.go) return;
+    if (meId != goBlack && meId != goWhite) return;
+    goWinner = meId == goBlack ? 'white' : 'black';
+    send({'t': 'goResign', 'node': meId});
+    _endGo();
+    notifyListeners();
+  }
+
+  void _applyGoMove(Map<String, dynamic> m, String node) {
+    if (goWinner.isNotEmpty || node != goTurnId) return;
+    final r = GoGame.replay(goMoves);
+    final idx = GoGame.sq((m['coord'] as String?) ?? '');
+    if (GoGame.apply(r.board, r.prev, idx, goBlackTurn) == null) return;
+    goMoves.add((m['coord'] as String?) ?? '');
+    notifyListeners();
+  }
+
+  void _applyGoPass(String node) {
+    if (goWinner.isNotEmpty || node != goTurnId) return;
+    goMoves.add('pass');
+    _checkGoEnd();
+    notifyListeners();
+  }
+
+  /// Two consecutive passes end the game; area scoring decides.
+  void _checkGoEnd() {
+    if (goWinner.isNotEmpty) return;
+    if (goMoves.length < 2) return;
+    if (goMoves[goMoves.length - 1] == 'pass' &&
+        goMoves[goMoves.length - 2] == 'pass') {
+      final r = GoGame.replay(goMoves);
+      final s = GoGame.score(r.board);
+      goWinner = s.black == s.white
+          ? 'draw'
+          : (s.black > s.white ? 'black' : 'white');
+      _endGo();
+    }
+  }
+
+  void _endGo() {
+    final winnerId = switch (goWinner) {
+      'black' => goBlack,
+      'white' => goWhite,
+      _ => '',
+    };
+    players.where((p) => p.id == winnerId).firstOrNull?.score++;
+    deadline = DateTime.now().subtract(const Duration(seconds: 1));
+    showToast('Game over!');
+  }
+
+  // ------------------------------------------------------------- word tiles
+
+  String get wtTurnId =>
+      wtSeats.isEmpty ? '' : wtSeats[wtMoves.length % wtSeats.length];
+
+  /// Derived board: {x:y -> letter} from the replicated move log.
+  Map<String, String> get wtBoard => WtGame.boardFromMoves(wtMoves);
+
+  /// Derived rack for a seat: initial 7 in seat order, refill to 7 after
+  /// each of that seat's moves. Deterministic from bag + move log.
+  List<String> wtRackOf(int seatIdx) {
+    if (wtBag.isEmpty) return const [];
+    var bagIdx = 0;
+    final racks = List.generate(wtSeats.length, (_) => <String>[]);
+    for (var i = 0; i < wtSeats.length; i++) {
+      final n = wtBag.length - bagIdx;
+      final take = n < 7 ? n : 7;
+      racks[i].addAll(wtBag.sublist(bagIdx, bagIdx + take));
+      bagIdx += take;
+    }
+    for (var t = 0; t < wtMoves.length; t++) {
+      final seat = t % wtSeats.length;
+      final mv = wtMoves[t];
+      if (mv is List) {
+        for (final tile in mv) {
+          racks[seat].remove((tile[2] as String).toUpperCase());
+        }
+        while (racks[seat].length < 7 && bagIdx < wtBag.length) {
+          racks[seat].add(wtBag[bagIdx++]);
+        }
+      }
+    }
+    return racks[seatIdx];
+  }
+
+  List<String> get wtMyRack {
+    final i = wtSeats.indexOf(meId);
+    return i < 0 ? const [] : wtRackOf(i);
+  }
+
+  /// Derived score for a seat: replay the log, scoring each play.
+  int wtScoreOf(int seatIdx) {
+    var score = 0;
+    var board = <String, String>{};
+    for (var t = 0; t < wtMoves.length; t++) {
+      final mv = wtMoves[t];
+      if (mv is! List) continue;
+      final seat = t % wtSeats.length;
+      final tiles = <List<dynamic>>[
+        for (final tile in mv)
+          [
+            (tile[0] as num).toInt(),
+            (tile[1] as num).toInt(),
+            (tile[2] as String).toUpperCase(),
+          ],
+      ];
+      final opening = board.isEmpty;
+      final words = WtGame.formedWords(board, tiles);
+      if (seat == seatIdx) {
+        score += WtGame.scoreWords(
+          words,
+          opening: opening,
+          tileCount: tiles.length,
+        );
+      }
+      for (final t in tiles) {
+        board['${t[0]}:${t[1]}'] = t[2] as String;
+      }
+    }
+    return score;
+  }
+
+  int get wtMyScore {
+    final i = wtSeats.indexOf(meId);
+    return i < 0 ? 0 : wtScoreOf(i);
+  }
+
+  /// Current player: play tiles [[x, y, letter], ...].
+  bool wtTryPlay(List<List<dynamic>> tiles) {
+    if (phase != Phase.play || mode != GameMode.wordtiles) return false;
+    if (wtWinner.isNotEmpty || meId != wtTurnId) return false;
+    final err = WtGame.validate(
+      board: wtBoard,
+      rack: wtMyRack,
+      tiles: tiles,
+      hasWord: finder.hasWord,
+    );
+    if (err != null) {
+      showToast(err);
+      return false;
+    }
+    final wire = [
+      for (final t in tiles)
+        [(t[0] as num).toInt(), (t[1] as num).toInt(), (t[2] as String).toUpperCase()],
+    ];
+    wtMoves.add(wire);
+    send({'t': 'wtMove', 'node': meId, 'tiles': wire});
+    _checkWtEnd();
+    notifyListeners();
+    return true;
+  }
+
+  void wtPassTurn() {
+    if (phase != Phase.play || mode != GameMode.wordtiles) return;
+    if (wtWinner.isNotEmpty || meId != wtTurnId) return;
+    wtMoves.add('pass');
+    send({'t': 'wtPass', 'node': meId});
+    _checkWtEnd();
+    notifyListeners();
+  }
+
+  void _applyWtMove(Map<String, dynamic> m, String node) {
+    if (wtWinner.isNotEmpty || node != wtTurnId) return;
+    final raw = m['tiles'];
+    if (raw is! List) return;
+    final tiles = <List<dynamic>>[];
+    for (final t in raw) {
+      if (t is! List || t.length < 3) return;
+      if (t[0] is! num || t[1] is! num || t[2] is! String) return;
+      tiles.add([(t[0] as num).toInt(), (t[1] as num).toInt(), t[2]]);
+    }
+    final err = WtGame.validate(
+      board: wtBoard,
+      rack: wtRackOf(wtSeats.indexOf(node)),
+      tiles: tiles,
+      hasWord: finder.hasWord,
+    );
+    if (err != null) return;
+    wtMoves.add(tiles);
+    _checkWtEnd();
+    notifyListeners();
+  }
+
+  void _applyWtPass(String node) {
+    if (wtWinner.isNotEmpty || node != wtTurnId) return;
+    wtMoves.add('pass');
+    _checkWtEnd();
+    notifyListeners();
+  }
+
+  /// End when the bag is empty and a rack empties, or everyone passes in a
+  /// row. Highest score wins.
+  void _checkWtEnd() {
+    if (wtWinner.isNotEmpty) return;
+    // remaining bag size: initial 7 per seat, then refills as moves consume
+    var remaining = wtBag.length;
+    for (var i = 0; i < wtSeats.length; i++) {
+      remaining = remaining > 7 ? remaining - 7 : 0;
+    }
+    for (var t = 0; t < wtMoves.length; t++) {
+      if (wtMoves[t] is! List || remaining <= 0) continue;
+      final seat = t % wtSeats.length;
+      var rack = wtRackOf(seat).length;
+      while (rack < 7 && remaining > 0) {
+        remaining--;
+        rack++;
+      }
+    }
+    final bagEmpty = remaining <= 0;
+    var rackEmpty = false;
+    for (var i = 0; i < wtSeats.length; i++) {
+      if (wtRackOf(i).isEmpty) rackEmpty = true;
+    }
+    final allPassed = wtMoves.length >= wtSeats.length &&
+        wtMoves
+            .sublist(wtMoves.length - wtSeats.length)
+            .every((m) => m == 'pass');
+    if (!((bagEmpty && rackEmpty) || allPassed)) return;
+    var best = -1;
+    var bestSeat = -1;
+    var tie = false;
+    for (var i = 0; i < wtSeats.length; i++) {
+      final s = wtScoreOf(i);
+      if (s > best) {
+        best = s;
+        bestSeat = i;
+        tie = false;
+      } else if (s == best) {
+        tie = true;
+      }
+    }
+    wtWinner = tie ? 'draw' : wtSeats[bestSeat];
+    players.where((p) => p.id == wtWinner).firstOrNull?.score++;
+    deadline = DateTime.now().subtract(const Duration(seconds: 1));
+    showToast('Game over!');
+  }
+
   // ------------------------------------------------------- room persistence
 
   /// Rejoin the last room on startup (identity persists via the stored iroh
@@ -1097,9 +1553,12 @@ class Game extends ChangeNotifier {
     sgWords.clear();
     sketchStrokes.clear();
     chessMoves.clear();
+    goMoves.clear();
+    wtMoves.clear();
     path.clear();
     pendingWord = null;
     _lastHostId = '';
+    _syncedFromOthers = false;
     phase = Phase.lobby;
     showToast('Left the room');
     notifyListeners();
@@ -1113,6 +1572,19 @@ class Game extends ChangeNotifier {
       /* storage unavailable */
     }
     return null;
+  }
+
+  /// Debug: raw per-type receive counters from the glue layer.
+  static String _glueStats() {
+    try {
+      final f = _window.getProperty<JSObject?>('__boggleGlueStats'.toJS);
+      if (f == null) return '';
+      final raw = f.callMethod<JSAny?>('call'.toJS, f);
+      if (raw is JSString) return raw.toDart;
+    } catch (_) {
+      /* not available */
+    }
+    return '';
   }
 
   static void _storageRemove(String key) {
@@ -1166,7 +1638,25 @@ class Game extends ChangeNotifier {
         'chessWinner': chessWinner,
         'chessWhite': chessWhite,
         'chessBlack': chessBlack,
+        'goMoves': goMoves.join(','),
+        'goWinner': goWinner,
+        'goBlack': goBlack,
+        'goWhite': goWhite,
+        'wtMoves': wtMoves.length,
+        'wtWinner': wtWinner,
+        'wtSeats': wtSeats,
+        'wtMyRack': wtMyRack.join(','),
+        'wtMyScore': wtMyScore,
+        'wtScores': {
+          for (var i = 0; i < wtSeats.length; i++) wtSeats[i]: wtScoreOf(i),
+        },
         'pids': [for (final p in players) p.id],
+        'synced': _syncedFromOthers,
+        'stateSent': stateSent,
+        'stateReceived': stateReceived,
+        'glue': _glueStats(),
+        'debugLog': debugLog.join(' | '),
+        'hostId': hostId,
       };
 
   String _lastError = '';
