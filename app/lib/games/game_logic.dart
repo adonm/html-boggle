@@ -42,8 +42,9 @@ extension GameModeInfo on GameMode {
           'Each round deals a random letter. Type words starting with it before time '
               'runs out. At the reveal, duplicates cancel - only unique words score.',
         GameMode.sketchit =>
-          'One player draws a secret word on the canvas while everyone guesses. Type '
-              'the exact answer to score (drawer and guesser both get a point). The '
+          'One player draws a secret word on the canvas while everyone guesses from '
+              'a letter-count hint (the word is never shown to guessers). Type the '
+              'exact answer to score - drawer and guesser both get a point. The '
               'drawer rotates each round.',
         GameMode.chess =>
           'Full chess rules: castling, en passant, promotion with a piece '
@@ -70,7 +71,8 @@ extension GameModeInfo on GameMode {
               'canceled by duplicates at the reveal.',
         GameMode.sketchit =>
           'Drawer: draw with your finger/mouse, clear the canvas if you need a '
-              'restart. Guessers: type guesses - exact match wins the round.',
+              'restart. Guessers: type guesses at the answer - an exact match '
+              'wins the round.',
         GameMode.chess =>
           'Tap a piece, then a highlighted square to move. Only legal moves are '
               'highlighted; checkmate (not a king capture) ends the game.',

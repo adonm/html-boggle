@@ -69,6 +69,17 @@ try {
   const drawerPage = a.sketchDrawer === a.me ? pageA : pageB;
   const guesserPage = drawerPage === pageA ? pageB : pageA;
 
+  // guessers must NOT see the word (only a letter-count hint); the
+  // drawer must see it
+  const wordText = word.toUpperCase();
+  const guesserLeak = await guesserPage.getByText(wordText, { exact: true }).count();
+  if (guesserLeak > 0) fail("guesser can see the word " + wordText);
+  await waitFor(async () =>
+    ((await guesserPage.getByText(new RegExp(`GUESS THE WORD - ${word.length} LETTERS`)).count()) > 0 ? true : null),
+  10_000, "guesser sees only the letter count");
+  const drawerShows = await drawerPage.getByText(new RegExp(`DRAW: ${wordText}`)).count();
+  if (drawerShows === 0) fail("drawer cannot see the word to draw");
+
   // the play navbar shows the room context and the how-to guide
   await waitFor(async () =>
     ((await drawerPage.getByText(new RegExp(`ROOM ${room} · 2 players`)).count()) > 0 ? true : null),

@@ -67,16 +67,6 @@ class WordFinder {
   /// Can [w] be formed from adjacent tiles (each tile at most once)?
   bool forms(String w) => findPath(w) != null;
 
-  /// A random dictionary word within [minLen]..[maxLen] (for sketch rounds).
-  String? randomWord(Random rng, int minLen, int maxLen) {
-    if (_dict.isEmpty) return null;
-    for (var i = 0; i < 50; i++) {
-      final w = _dict[rng.nextInt(_dict.length)];
-      if (w.length >= minLen && w.length <= maxLen) return w;
-    }
-    return _dict[rng.nextInt(_dict.length)];
-  }
-
   /// Find a valid tile path for [w], or null.
   List<int>? findPath(String w) {
     _visited.fillRange(0, 16, false);

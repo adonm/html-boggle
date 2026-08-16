@@ -111,7 +111,7 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
           child: Text(
             _isDrawer
                 ? 'DRAW: ${g.sketch!.word.toUpperCase()}'
-                : 'ANSWER: ${g.sketch!.word.toUpperCase()}',
+                : 'GUESS THE WORD - ${g.sketch!.word.length} LETTERS',
             textAlign: TextAlign.center,
             style: theme.textTheme.titleLarge?.copyWith(
               color: _isDrawer ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,

@@ -4,6 +4,7 @@
 library;
 
 import 'game_logic.dart';
+import 'sketch_words.dart';
 import 'turn_game.dart';
 
 class SketchLogic extends GameLogic {
@@ -25,7 +26,7 @@ class SketchLogic extends GameLogic {
 
   @override
   void populateStart(Map<String, dynamic> msg) {
-    word = host.finder.randomWord(host.rng, 4, 9) ?? 'cat';
+    word = sketchWords[host.rng.nextInt(sketchWords.length)];
     drawer = host.sortedPlayers[(host.round - 1) % host.players.length].id;
     strokes.clear();
     solved = false;
