@@ -83,14 +83,24 @@ pub struct BoggleNet {
 impl BoggleNet {
     /// Create an endpoint plus a gossip node.
     ///
-    /// Everyone pins the same fixed relay instead of the N0 default relay
-    /// map: the periodic net_report would otherwise switch "home" relays at
-    /// runtime, which drops all connections relayed through the old relay.
-    pub async fn new() -> Result<BoggleNet, JsError> {
-        let relay: iroh::RelayUrl = "https://use1-1.relay.n0.iroh.link."
-            .parse()
-            .map_err(|err| anyhow!("invalid relay url: {err}"))
-            .map_err(to_js_err)?;
+    /// `relay_url` pins the home relay for this session (glue.js picks the
+    /// fastest N0 public relay at startup). We deliberately avoid the N0
+    /// default relay map: the periodic net_report would switch "home" relays
+    /// at runtime, which drops all connections relayed through the old relay.
+    pub async fn new(relay_url: String) -> Result<BoggleNet, JsError> {
+        let relay: iroh::RelayUrl = if relay_url.trim().is_empty() {
+            "https://use1-1.relay.n0.iroh.link."
+                .parse()
+                .map_err(to_js_err)?
+        } else {
+            let url = relay_url.trim();
+            let url = if url.contains("://") {
+                url.to_string()
+            } else {
+                format!("https://{url}")
+            };
+            url.parse().map_err(to_js_err)?
+        };
         let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
             .relay_mode(iroh::RelayMode::custom([relay]))
             .alpns(vec![GOSSIP_ALPN.to_vec()])

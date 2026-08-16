@@ -26,6 +26,52 @@ import init, { BoggleNet } from "./net/boggle_net.js";
 const PKARR_RELAY = "https://dns.iroh.link/pkarr/";
 const SYNC_INTERVAL_MS = 5_000;
 
+/** N0 public relays; we pin the fastest one for the whole session. */
+const N0_RELAYS = [
+  "use1-1.relay.n0.iroh.link.",
+  "usw1-1.relay.n0.iroh.link.",
+  "euc1-1.relay.n0.iroh.link.",
+  "aps1-1.relay.n0.iroh.link.",
+];
+const DEFAULT_RELAY = N0_RELAYS[0];
+
+/**
+ * Pick the N0 relay with the lowest measured latency. A fetch to the relay
+ * root returns 404 quickly, but the round trip (TCP+TLS) is what matters, and
+ * that dominates the timing. Failures (offline relay, CORS rejections) just
+ * lose the race. Cached per tab session.
+ */
+async function pickRelay() {
+  try {
+    const cached = sessionStorage.getItem("boggle.relay");
+    if (cached) return cached;
+  } catch {
+    /* sessionStorage unavailable */
+  }
+  const probe = async (url) => {
+    const t0 = performance.now();
+    try {
+      await fetch(`https://${url}`, {
+        mode: "no-cors",
+        cache: "no-store",
+        signal: AbortSignal.timeout(6_000),
+      });
+    } catch {
+      /* unreachable or CORS rejection; timing still counts */
+    }
+    return { url, ms: performance.now() - t0 };
+  };
+  const results = await Promise.all(N0_RELAYS.map(probe));
+  const best = results.sort((a, b) => a.ms - b.ms)[0]?.url ?? DEFAULT_RELAY;
+  try {
+    sessionStorage.setItem("boggle.relay", best);
+  } catch {
+    /* ignore */
+  }
+  console.log("[boggle] relay probe:", results, "->", best);
+  return best;
+}
+
 function bytesToHex(bytes) {
   let out = "";
   for (const b of bytes) out += b.toString(16).padStart(2, "0");
@@ -63,7 +109,7 @@ const glue = {
   /** Called by the Flutter app. Resolves with our node id. */
   async join(room, topicHex, name) {
     await init();
-    if (!this.net) this.net = await BoggleNet.new();
+    if (!this.net) this.net = await BoggleNet.new(await pickRelay());
     console.log("[boggle] endpoint bound", this.net.node_id());
     const nodeId = this.net.node_id();
 
