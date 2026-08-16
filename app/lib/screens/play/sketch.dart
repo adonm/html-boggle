@@ -46,10 +46,12 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
 
   void _sendBuf(double color, double width) {
     if (_buf.isEmpty || _strokeId == null) return;
+    // interleaved [x1, y1, x2, y2, ...] - the one canonical point format;
+    // flattened-halves deltas used to break merged multi-point strokes
     game.sketch?.draw(
       color,
       width,
-      [for (final p in _buf) p.dx, for (final p in _buf) p.dy],
+      [for (final p in _buf) ...[p.dx, p.dy]],
       id: _strokeId,
     );
     _buf.clear();

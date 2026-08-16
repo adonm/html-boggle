@@ -20,6 +20,19 @@ class SketchPainter extends CustomPainter {
 
   static final Paint _fill = Paint()..style = PaintingStyle.fill;
 
+  /// Interleaved [x1, y1, x2, y2, ...] normalized points -> canvas space.
+  /// Public so the merge/format invariants are unit-testable.
+  static List<PointVector> pointsOf(List<dynamic> pts, Size size) {
+    final out = <PointVector>[];
+    for (var i = 0; i + 1 < pts.length; i += 2) {
+      out.add(PointVector(
+        (pts[i] as num).toDouble() * size.width,
+        (pts[i + 1] as num).toDouble() * size.height,
+      ));
+    }
+    return out;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
@@ -48,13 +61,7 @@ class SketchPainter extends CustomPainter {
         );
         continue;
       }
-      final points = <PointVector>[
-        for (var i = 0; i < n; i++)
-          PointVector(
-            (pts[i] as num).toDouble() * size.width,
-            (pts[i + n] as num).toDouble() * size.height,
-          ),
-      ];
+      final points = pointsOf(pts, size);
       final outline = getStroke(
         points,
         options: StrokeOptions(
