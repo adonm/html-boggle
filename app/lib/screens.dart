@@ -3,10 +3,13 @@
 /// Layouts adapt to phone-sized viewports (stacked board, scrollable panels).
 library;
 
+import 'dart:async';
+
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import 'chess.dart';
 import 'game.dart';
 import 'net.dart';
 import 'theme.dart';
@@ -418,6 +421,93 @@ class JoiningScreen extends StatelessWidget {
 
 // -------------------------------------------------------------------- chat
 
+/// Game picker (the round starter's choice wins; the start message carries it).
+class GameModePicker extends StatelessWidget {
+  const GameModePicker({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('GAME', style: theme.textTheme.labelMedium),
+        const SizedBox(height: 6),
+        DropdownMenu<GameMode>(
+          initialSelection: game.mode,
+          width: 280,
+          label: const Text('game'),
+          inputDecorationTheme: const InputDecorationTheme(
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSelected: (m) {
+            if (m != null) game.setMode(m);
+          },
+          dropdownMenuEntries: [
+            for (final m in GameMode.values)
+              DropdownMenuEntry(
+                value: m,
+                label: '${m.title}${m.implemented ? '' : '  (soon)'}',
+                leadingIcon: Icon(_modeIcon(m)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _ModeGuide(mode: game.mode),
+      ],
+    );
+  }
+
+  static IconData _modeIcon(GameMode m) => switch (m) {
+        GameMode.boggle => Icons.grid_4x4,
+        GameMode.scattergories => Icons.abc,
+        GameMode.sketchit => Icons.brush,
+        GameMode.chess => Icons.sports_esports,
+        GameMode.go => Icons.blur_circular,
+        GameMode.wordtiles => Icons.view_module,
+      };
+}
+
+/// Short description + how-to guide for the selected game.
+class _ModeGuide extends StatelessWidget {
+  const _ModeGuide({required this.mode});
+
+  final GameMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            mode.title,
+            style: theme.textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(mode.description, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 6),
+          Text(
+            'HOW TO PLAY: ${mode.howTo}',
+            style: theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Ready / start controls: everyone readies up, then ANYONE can start.
 class ReadyStartControls extends StatelessWidget {
   const ReadyStartControls({
@@ -677,6 +767,8 @@ class RoomScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 18),
+                      GameModePicker(game: g),
+                      const SizedBox(height: 12),
                       ReadyStartControls(game: g, startLabel: 'START ROUND'),
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
@@ -693,6 +785,12 @@ class RoomScreen extends StatelessWidget {
                         },
                         icon: const Icon(Icons.link),
                         label: const Text('SHARE LINK'),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton.icon(
+                        onPressed: g.leaveRoom,
+                        icon: const Icon(Icons.logout, size: 18),
+                        label: const Text('LEAVE ROOM'),
                       ),
                     ],
                   ),
@@ -757,6 +855,15 @@ class _PlayScreenState extends State<PlayScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final g = game;
+    if (g.mode == GameMode.scattergories) {
+      return ScatterPlayBody(game: g);
+    }
+    if (g.mode == GameMode.sketchit) {
+      return SketchPlayBody(game: g);
+    }
+    if (g.mode == GameMode.chess) {
+      return ChessPlayBody(game: g);
+    }
     final remaining = g.remainingMs();
     final urgent = remaining < 10000;
     return Stack(
@@ -1125,6 +1232,314 @@ class _PlayScreenState extends State<PlayScreen> {
   }
 }
 
+// ----------------------------------------------------- scattergories play
+
+class ScatterPlayBody extends StatefulWidget {
+  const ScatterPlayBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<ScatterPlayBody> createState() => _ScatterPlayBodyState();
+}
+
+class _ScatterPlayBodyState extends State<ScatterPlayBody> {
+  final TextEditingController _input = TextEditingController();
+
+  Game get game => widget.game;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  String _fmt(int ms) {
+    final s = (ms / 1000).ceil();
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
+  void _submit() {
+    game.submitScattergories(_input.text);
+    _input.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final remaining = g.remainingMs();
+    final urgent = remaining < 10000;
+    final timerText = Text(
+      _fmt(remaining),
+      style: theme.textTheme.headlineSmall?.copyWith(
+        color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+        fontWeight: FontWeight.bold,
+      ),
+    );
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(_cardRadius),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'SCATTERGORIES · ROUND ${g.round}',
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ),
+                    if (urgent)
+                      Animate(
+                        onPlay: (c) => c.loop(reverse: true),
+                        effects: [
+                          ScaleEffect(
+                            begin: const Offset(1.0, 1.0),
+                            end: const Offset(1.12, 1.12),
+                            duration: 550.ms,
+                            curve: Curves.easeInOut,
+                          ),
+                        ],
+                        child: timerText,
+                      )
+                    else
+                      timerText,
+                    const SizedBox(width: 4),
+                    IconButton(
+                      tooltip: 'Room chat',
+                      icon: const Icon(Icons.forum_outlined),
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        showDragHandle: true,
+                        builder: (sheetContext) => Padding(
+                          padding: EdgeInsets.only(
+                            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                          ),
+                          child: SizedBox(
+                            height: MediaQuery.sizeOf(sheetContext).height * 0.55,
+                            child: ChatPanel(game: g),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const ThemeMenu(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: remaining / roundMs,
+                  minHeight: 6,
+                  color: urgent ? theme.colorScheme.error : theme.colorScheme.primary,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            children: [
+                              Text(
+                                g.sgLetter,
+                                style: theme.textTheme.displayLarge?.copyWith(
+                                  fontSize: 88,
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'words must start with this letter',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _input,
+                              style: const TextStyle(fontSize: 16),
+                              decoration: const InputDecoration(
+                                labelText: 'Scattergories word',
+                                hintText: 'type a word...',
+                              ),
+                              textInputAction: TextInputAction.send,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              onSubmitted: (_) => _submit(),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton.filled(
+                            tooltip: 'Submit word',
+                            icon: const Icon(Icons.arrow_forward),
+                            onPressed: _submit,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('SUBMITTED', style: theme.textTheme.labelMedium),
+                              const SizedBox(height: 6),
+                              for (final p in g.players)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          p.isMe ? '${p.name} (you)' : (p.name.isEmpty ? '...' : p.name),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Text('${g.sgWords[p.id]?.length ?? 0} words'),
+                                    ],
+                                  ),
+                                ),
+                              const Divider(),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final w in (g.sgWords[g.meId] ?? const <String>[]).reversed)
+                                    Chip(
+                                      label: Text(w.toUpperCase()),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------- scattergories results
+
+class ScatterResultsBody extends StatelessWidget {
+  const ScatterResultsBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final ranked = [...g.players]
+      ..sort((a, b) => g.sgScore(b.id).compareTo(g.sgScore(a.id)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'LETTER ${g.sgLetter} · ROUND ${g.round} OVER',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineMedium?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final p in ranked)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${p.name}${p.isMe ? ' (you)' : ''}',
+                            style: p.isMe
+                                ? const TextStyle(
+                                    color: BoggleColors.youGreen,
+                                    fontWeight: FontWeight.bold,
+                                  )
+                                : null,
+                          ),
+                        ),
+                        Text('${g.sgScore(p.id)} pts'),
+                      ],
+                    ),
+                  ),
+                const Divider(),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final w in g.sgAllWords)
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(
+                          g.sgIsDupe(w) ? '${w.toUpperCase()} ✗' : '${w.toUpperCase()} ✓',
+                          style: TextStyle(
+                            decoration: g.sgIsDupe(w) ? TextDecoration.lineThrough : null,
+                            color: g.sgIsDupe(w)
+                                ? theme.colorScheme.error
+                                : BoggleColors.youGreen,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '✓ counts, ✗ duplicates cancel',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ---------------------------------------------------------------- results
 
 class ResultsScreen extends StatefulWidget {
@@ -1172,22 +1587,33 @@ class _ResultsScreenState extends State<ResultsScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'ROUND ${g.round} OVER',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
+                if (g.mode == GameMode.scattergories)
+                  ScatterResultsBody(game: g)
+                else if (g.mode == GameMode.sketchit) ...[
+                  SketchResultsBanner(game: g),
+                  const SizedBox(height: 12),
+                  _ResultsScoreCard(ranked: ranked),
+                ] else if (g.mode == GameMode.chess) ...[
+                  ChessResultsBanner(game: g),
+                  const SizedBox(height: 12),
+                  _ResultsScoreCard(ranked: ranked),
+                ] else ...[
+                  Text(
+                    'ROUND ${g.round} OVER',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 18),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var i = 0; i < ranked.length; i++)
+                  const SizedBox(height: 18),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var i = 0; i < ranked.length; i++)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 6),
                             child: Row(
@@ -1246,8 +1672,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     ),
                   ),
                 ),
+                ],
                 const SizedBox(height: 18),
                 ReadyStartControls(game: g, startLabel: 'NEXT ROUND'),
+                const SizedBox(height: 6),
+                TextButton.icon(
+                  onPressed: g.leaveRoom,
+                  icon: const Icon(Icons.logout, size: 18),
+                  label: const Text('LEAVE ROOM'),
+                ),
               ],
             ),
           ),
@@ -1275,6 +1708,562 @@ class _ResultsScreenState extends State<ResultsScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ----------------------------------------------------------------- sketchit
+
+/// SketchIt play view: canvas for the drawer, guess input for everyone else.
+class SketchPlayBody extends StatefulWidget {
+  const SketchPlayBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<SketchPlayBody> createState() => _SketchPlayBodyState();
+}
+
+class _SketchPlayBodyState extends State<SketchPlayBody> {
+  final TextEditingController _guess = TextEditingController();
+  final List<Offset> _buf = [];
+  Timer? _flush;
+  String? _strokeId;
+
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    game.removeListener(_onGame);
+    _flush?.cancel();
+    _guess.dispose();
+    super.dispose();
+  }
+
+  void _onGame() => setState(() {});
+
+  bool get _isDrawer => game.meId == game.sketchDrawer;
+
+  void _sendBuf(double color, double width) {
+    if (_buf.isEmpty || _strokeId == null) return;
+    game.sketchDraw(
+      color,
+      width,
+      [for (final p in _buf) p.dx, for (final p in _buf) p.dy],
+      id: _strokeId,
+    );
+    _buf.clear();
+  }
+
+  void _startStroke(Offset p, Size size) {
+    if (!_isDrawer) return;
+    _flush?.cancel();
+    _strokeId = DateTime.now().microsecondsSinceEpoch.toString();
+    _buf
+      ..clear()
+      ..add(Offset(
+        p.dx / size.width,
+        p.dy / size.height,
+      ));
+    _sendBuf(_color, _width);
+    _flush = Timer.periodic(const Duration(milliseconds: 90), (_) {
+      _sendBuf(_color, _width);
+    });
+  }
+
+  void _extendStroke(Offset p, Size size) {
+    if (!_isDrawer || _strokeId == null) return;
+    _buf.add(Offset(
+      (p.dx / size.width).clamp(0.0, 1.0),
+      (p.dy / size.height).clamp(0.0, 1.0),
+    ));
+  }
+
+  void _endStroke() {
+    _flush?.cancel();
+    _flush = null;
+    if (_strokeId == null) return;
+    _sendBuf(_color, _width);
+    _strokeId = null;
+    _buf.clear();
+  }
+
+  double _color = 0xFFFF9800;
+  double _width = 0.004;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Text(
+            _isDrawer
+                ? 'DRAW: ${g.sketchWord.toUpperCase()}'
+                : 'ANSWER: ${g.sketchWord.toUpperCase()}',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: _isDrawer ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900, maxHeight: 520),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size = Size(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      );
+                      return Semantics(
+                        label: 'drawing canvas',
+                        child: GestureDetector(
+                          onPanStart: _isDrawer
+                              ? (d) => _startStroke(d.localPosition, size)
+                              : null,
+                          onPanUpdate: _isDrawer
+                              ? (d) => _extendStroke(d.localPosition, size)
+                              : null,
+                          onPanEnd: _isDrawer ? (_) => _endStroke() : null,
+                          child: CustomPaint(
+                            size: size,
+                            painter: SketchPainter(strokes: g.sketchStrokes),
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: _isDrawer
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (final c in const [
+                      0xFFFF9800, 0xFFF44336, 0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0, 0xFF000000,
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: InkWell(
+                          onTap: () => setState(() => _color = c.toDouble()),
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            decoration: BoxDecoration(
+                              color: Color(c),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _color == c.toDouble()
+                                    ? theme.colorScheme.primary
+                                    : Colors.transparent,
+                                width: 3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        game.sketchClearCanvas();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.cleaning_services, size: 18),
+                      label: const Text('CLEAR'),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _guess,
+                        onSubmitted: _submitGuess,
+                        decoration: InputDecoration(
+                          hintText: 'type your guess...',
+                          isDense: true,
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => _submitGuess(_guess.text),
+                      child: const Text('GUESS'),
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _submitGuess(String text) {
+    if (text.trim().isEmpty) return;
+    game.sketchGuess(text);
+    _guess.clear();
+  }
+}
+
+/// Paints SketchIt strokes (normalized 0..1 coordinates).
+class SketchPainter extends CustomPainter {
+  const SketchPainter({required this.strokes});
+
+  final List<Map<String, dynamic>> strokes;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final white = Paint()..color = Colors.white;
+    canvas.drawRect(Offset.zero & size, white);
+    for (final s in strokes) {
+      final pts = s['pts'];
+      if (pts is! List || pts.isEmpty) continue;
+      final color = s['color'];
+      final width = s['width'];
+      final paint = Paint()
+        ..color = Color((color is num ? color.toInt() : 0xFF000000))
+        ..strokeWidth = ((width is num ? width : 0.004) * size.width).clamp(1.5, 20)
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      final path = Path();
+      for (var i = 0; i < pts.length / 2; i++) {
+        final x = (pts[i] as num).toDouble() * size.width;
+        final y = (pts[i + pts.length ~/ 2] as num).toDouble() * size.height;
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(SketchPainter oldDelegate) =>
+      oldDelegate.strokes.length != strokes.length ||
+      (strokes.isNotEmpty && oldDelegate.strokes.last != strokes.last);
+}
+
+class SketchResultsBanner extends StatelessWidget {
+  const SketchResultsBanner({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      game.sketchSolved
+          ? 'THE WORD WAS "${game.sketchWord.toUpperCase()}"'
+          : 'TIME IS UP - THE WORD WAS "${game.sketchWord.toUpperCase()}"',
+      textAlign: TextAlign.center,
+      style: theme.textTheme.headlineSmall?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------------------- chess
+
+/// Capture Chess play view: tap a piece, then a highlighted square.
+class ChessPlayBody extends StatefulWidget {
+  const ChessPlayBody({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  State<ChessPlayBody> createState() => _ChessPlayBodyState();
+}
+
+class _ChessPlayBodyState extends State<ChessPlayBody> {
+  int? _selected;
+
+  Game get game => widget.game;
+
+  @override
+  void initState() {
+    super.initState();
+    game.addListener(_onGame);
+  }
+
+  @override
+  void dispose() {
+    game.removeListener(_onGame);
+    super.dispose();
+  }
+
+  void _onGame() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final g = game;
+    final board = ChessBoard.fromMoves(g.chessMoves);
+    final isPlayer = g.meId == g.chessWhite || g.meId == g.chessBlack;
+    final myTurn = g.meId == g.chessTurnId;
+    final targets = _selected == null
+        ? const <int>[]
+        : ChessBoard.targets(board, _selected!);
+    String nameOf(String id) =>
+        g.players.where((p) => p.id == id).firstOrNull?.name ?? '';
+    final whiteName = nameOf(g.chessWhite).isEmpty ? 'White' : nameOf(g.chessWhite);
+    final blackName = nameOf(g.chessBlack).isEmpty ? 'Black' : nameOf(g.chessBlack);
+    final turnName = g.chessWhiteTurn ? whiteName : blackName;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            isPlayer
+                ? (myTurn ? 'YOUR MOVE' : 'waiting for $turnName...')
+                : 'spectating - $turnName to move',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: myTurn ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final sq = constraints.maxWidth / 8;
+                      return Column(
+                        children: [
+                          for (var r = 0; r < 8; r++)
+                            Row(
+                              children: [
+                                for (var c = 0; c < 8; c++)
+                                  _square(
+                                    r * 8 + c,
+                                    board,
+                                    sq,
+                                    targets,
+                                    theme,
+                                  ),
+                              ],
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            'WHITE: $whiteName · BLACK: $blackName · capture the king to win',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _square(int idx, List<String> board, double sq, List<int> targets,
+      ThemeData theme) {
+    final dark = (idx ~/ 8 + idx % 8).isOdd;
+    final selected = idx == _selected;
+    final target = targets.contains(idx);
+    final piece = board[idx];
+    return Semantics(
+      label: 'chess square ${ChessBoard.sqName(idx)}',
+      button: true,
+      child: InkWell(
+        onTap: () {
+          if (game.meId != game.chessTurnId) return;
+          if (_selected == null) {
+            if (piece != '.' &&
+                ChessBoard.isWhite(piece) == game.chessWhiteTurn) {
+              setState(() => _selected = idx);
+            }
+            return;
+          }
+          if (targets.contains(idx)) {
+            final from = ChessBoard.sqName(_selected!);
+            final to = ChessBoard.sqName(idx);
+            setState(() => _selected = null);
+            game.chessTryMove(from, to);
+            return;
+          }
+          if (piece != '.' &&
+              ChessBoard.isWhite(piece) == game.chessWhiteTurn &&
+              idx != _selected) {
+            setState(() => _selected = idx);
+            return;
+          }
+          setState(() => _selected = null);
+        },
+        child: Container(
+          width: sq,
+          height: sq,
+          decoration: BoxDecoration(
+            color: selected
+                ? theme.colorScheme.primary.withValues(alpha: 0.5)
+                : dark
+                    ? const Color(0xFFB58863)
+                    : const Color(0xFFF0D9B5),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (piece != '.')
+                Text(
+                  ChessBoard.glyph(piece),
+                  style: TextStyle(
+                    fontSize: sq * 0.62,
+                    color: ChessBoard.isWhite(piece)
+                        ? Colors.white
+                        : Colors.black,
+                  ),
+                ),
+              if (target)
+                Container(
+                  width: sq * 0.28,
+                  height: sq * 0.28,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              if (target && piece != '.')
+                Container(
+                  width: sq,
+                  height: sq,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: theme.colorScheme.primary,
+                      width: 3,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ChessResultsBanner extends StatelessWidget {
+  const ChessResultsBanner({super.key, required this.game});
+
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final winner = game.chessWinner;
+    return Text(
+      winner.isEmpty
+          ? 'GAME ABANDONED'
+          : winner == 'white'
+              ? 'WHITE WINS - KING CAPTURED!'
+              : 'BLACK WINS - KING CAPTURED!',
+      textAlign: TextAlign.center,
+      style: theme.textTheme.headlineSmall?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+}
+
+/// Score ranking card shared by sketch/chess results.
+class _ResultsScoreCard extends StatelessWidget {
+  const _ResultsScoreCard({required this.ranked});
+
+  final List<Player> ranked;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            for (var i = 0; i < ranked.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    if (i < 3)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.emoji_events,
+                          size: 22,
+                          color: const [
+                            BoggleColors.medalGold,
+                            BoggleColors.medalSilver,
+                            BoggleColors.medalBronze,
+                          ][i],
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        width: 30,
+                        child: Text(
+                          '${i + 1}.',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                    Expanded(
+                      child: Text(
+                        '${ranked[i].name}${ranked[i].isMe ? ' (you)' : ''}',
+                        style: ranked[i].isMe
+                            ? const TextStyle(
+                                color: BoggleColors.youGreen,
+                                fontWeight: FontWeight.bold,
+                              )
+                            : theme.textTheme.titleMedium,
+                      ),
+                    ),
+                    Text(
+                      '${ranked[i].score} pts',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

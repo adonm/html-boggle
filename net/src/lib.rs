@@ -81,13 +81,31 @@ pub struct BoggleNet {
 
 #[wasm_bindgen]
 impl BoggleNet {
-    /// Create an endpoint plus a gossip node.
+    /// Create an endpoint plus a gossip node with a fresh identity.
     ///
     /// `relay_url` pins the home relay for this session (glue.js picks the
     /// fastest N0 public relay at startup). We deliberately avoid the N0
     /// default relay map: the periodic net_report would switch "home" relays
     /// at runtime, which drops all connections relayed through the old relay.
     pub async fn new(relay_url: String) -> Result<BoggleNet, JsError> {
+        Self::new_inner(None, relay_url).await
+    }
+
+    /// Create an endpoint plus a gossip node reusing a persisted identity
+    /// (hex-encoded 32-byte secret key), so rejoining a room restores the
+    /// same node id and the room recognizes you.
+    pub async fn new_with_secret(secret_hex: String, relay_url: String) -> Result<BoggleNet, JsError> {
+        let key = hex::decode(secret_hex.trim())
+            .ok()
+            .and_then(|b| b.try_into().ok())
+            .map(|b: [u8; 32]| iroh::SecretKey::from_bytes(&b));
+        Self::new_inner(key, relay_url).await
+    }
+
+    async fn new_inner(
+        secret: Option<iroh::SecretKey>,
+        relay_url: String,
+    ) -> Result<BoggleNet, JsError> {
         let relay: iroh::RelayUrl = if relay_url.trim().is_empty() {
             "https://use1-1.relay.n0.iroh.link."
                 .parse()
@@ -101,12 +119,13 @@ impl BoggleNet {
             };
             url.parse().map_err(to_js_err)?
         };
-        let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
+        let mut builder = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
             .relay_mode(iroh::RelayMode::custom([relay]))
-            .alpns(vec![GOSSIP_ALPN.to_vec()])
-            .bind()
-            .await
-            .map_err(to_js_err)?;
+            .alpns(vec![GOSSIP_ALPN.to_vec()]);
+        if let Some(key) = secret {
+            builder = builder.secret_key(key);
+        }
+        let endpoint = builder.bind().await.map_err(to_js_err)?;
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
         let router = Router::builder(endpoint)

@@ -5,15 +5,82 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'board.dart';
+import 'chess.dart';
 import 'net.dart';
 
+@JS('window.localStorage')
+external JSObject get _storage;
+
 enum Phase { lobby, joining, room, play, results }
+
+/// Which game the room is playing (the round starter's choice wins).
+enum GameMode { boggle, scattergories, sketchit, chess, go, wordtiles }
+
+extension GameModeInfo on GameMode {
+  String get title => switch (this) {
+        GameMode.boggle => 'Boggle',
+        GameMode.scattergories => 'Scattergories',
+        GameMode.sketchit => 'SketchIt',
+        GameMode.chess => 'Capture Chess',
+        GameMode.go => 'Go (9×9)',
+        GameMode.wordtiles => 'Word Tiles',
+      };
+
+  String get description => switch (this) {
+        GameMode.boggle =>
+          'Find words in the 4×4 letter grid before the 3-minute timer runs out. '
+              'Words: 3+ letters over adjacent tiles (any direction), each tile once. '
+              'Classic scoring (longer = more points).',
+        GameMode.scattergories =>
+          'Each round deals a random letter. Type words starting with it before time '
+              'runs out. At the reveal, duplicates cancel - only unique words score.',
+        GameMode.sketchit =>
+          'One player draws a secret word on the canvas while everyone guesses. Type '
+              'the exact answer to score (drawer and guesser both get a point). The '
+              'drawer rotates each round.',
+        GameMode.chess =>
+          'Chess with a twist: capture the king to win - no check/checkmate '
+              'bookkeeping, no castling. Pawns auto-promote to queens. Two players; '
+              'everyone else spectates.',
+        GameMode.go =>
+          'Go on a 9×9 board: place stones, capture groups by surrounding them, '
+              'simple ko rule. Two players, others spectate.',
+        GameMode.wordtiles =>
+          'Scrabble-style crossword: build words from your 7-tile rack onto the '
+              'board, connecting to existing letters. Points from word length.',
+      };
+
+  String get howTo => switch (this) {
+        GameMode.boggle =>
+          'Tap tiles to spell, ENTER to submit. The host arbitrates duplicates; '
+              'first to find a word keeps it.',
+        GameMode.scattergories =>
+          'Type words into the box and hit enter. Think fast - slowpokes get '
+              'canceled by duplicates at the reveal.',
+        GameMode.sketchit =>
+          'Drawer: draw with your finger/mouse, clear the canvas if you need a '
+              'restart. Guessers: type guesses - exact match wins the round.',
+        GameMode.chess =>
+          'Tap a piece, then a highlighted square to move. Capturing the enemy '
+              'king ends the game immediately.',
+        GameMode.go => 'Coming soon.',
+        GameMode.wordtiles => 'Coming soon.',
+      };
+
+  bool get implemented => this != GameMode.go && this != GameMode.wordtiles;
+
+  String get wireName => name;
+}
+
+GameMode modeFromWire(String? s) => GameMode.values.asNameMap()[s] ?? GameMode.boggle;
 
 class Player {
   Player(this.id, this.name);
@@ -100,6 +167,97 @@ class Game extends ChangeNotifier {
   int get readyCount => players.where((p) => p.ready).length;
   String _lastHostId = '';
 
+  // Scattergories state (submissions per node id; scoring is local +
+  // deterministic: unique words count, duplicates cancel).
+  GameMode mode = GameMode.boggle;
+  String sgLetter = '';
+  final Map<String, List<String>> sgWords = {};
+  static const String sgLetters = 'ABCDEFGHIJKLMNOPRSTUVWY'; // no Q, X, Z
+
+  // SketchIt state (strokes are ephemeral; word/drawer resume via state).
+  String sketchWord = '';
+  String sketchDrawer = '';
+  bool sketchSolved = false;
+  final List<Map<String, dynamic>> sketchStrokes = [];
+
+  // Capture Chess state (deterministic replay from the move list).
+  final List<String> chessMoves = [];
+  String chessWinner = '';
+  // Seats are pinned at round start (carried in start/state messages) so a
+  // late-joining spectator can never steal one and desync the move log.
+  String chessWhite = '';
+  String chessBlack = '';
+
+  /// Canonical player order (by node id) - identical on every client, used
+  /// for role assignment (chess white/black, sketch drawer rotation).
+  List<Player> get sortedPlayers =>
+      [...players]..sort((a, b) => a.id.compareTo(b.id));
+
+  void setMode(GameMode m) {
+    if (m == mode) return;
+    if (phase == Phase.lobby || phase == Phase.room || phase == Phase.results) {
+      if (!m.implemented) {
+        showToast('${m.title}: coming soon');
+        return;
+      }
+      mode = m;
+      notifyListeners();
+    }
+  }
+
+  /// Duplicate check: did more than one player submit [w]?
+  bool sgIsDupe(String w) =>
+      sgWords.entries.where((e) => e.value.contains(w)).length > 1;
+
+  /// Scattergories score: unique words only.
+  int sgScore(String id) {
+    var score = 0;
+    for (final w in sgWords[id] ?? const <String>[]) {
+      if (!sgIsDupe(w)) score++;
+    }
+    return score;
+  }
+
+  List<String> get sgAllWords =>
+      (sgWords.values.expand((l) => l).toSet().toList())..sort();
+
+  void submitScattergories(String raw) {
+    final w = raw.trim().toLowerCase();
+    if (phase != Phase.play || mode != GameMode.scattergories) return;
+    if (w.length < 3) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
+      showToast('Words need at least 3 letters');
+      notifyListeners();
+      return;
+    }
+    if (!w.startsWith(sgLetter.toLowerCase())) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
+      showToast('Must start with "$sgLetter"');
+      notifyListeners();
+      return;
+    }
+    if (!finder.hasWord(w)) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
+      showToast('"$w" is not in the dictionary');
+      notifyListeners();
+      return;
+    }
+    if ((sgWords[meId] ?? const <String>[]).contains(w)) {
+      wordAttempts++;
+      HapticFeedback.selectionClick();
+      showToast('You already submitted "$w"');
+      notifyListeners();
+      return;
+    }
+    sgWords.putIfAbsent(meId, () => []).add(w);
+    send({'t': 'sgSubmit', 'node': meId, 'name': myName, 'word': w});
+    HapticFeedback.selectionClick();
+    notifyListeners();
+  }
+
   int remainingMs() {
     final dl = deadline;
     if (dl == null) return 0;
@@ -115,6 +273,7 @@ class Game extends ChangeNotifier {
     net.registerEventSink();
     _eventsSub = net.events.listen(_onEvent);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    maybeRejoin();
   }
 
   String randomName() => randomNames[_rng.nextInt(randomNames.length)];
@@ -148,6 +307,7 @@ class Game extends ChangeNotifier {
       lastHello = null;
       lastState = DateTime.now();
       sendHello();
+      _persistRoom();
       showToast('Joined room "$rm"');
     } catch (err, st) {
       phase = Phase.lobby;
@@ -215,25 +375,87 @@ class Game extends ChangeNotifier {
       'phase': ph,
       'deadline': deadline?.millisecondsSinceEpoch ?? 0,
       'round': round,
+      'mode': mode.wireName,
+      'letter': sgLetter,
       'board': board.join(','),
+      'sgWords': {for (final e in sgWords.entries) e.key: e.value},
+      'sketchWord': sketchWord,
+      'sketchDrawer': sketchDrawer,
+      'sketchSolved': sketchSolved,
+      'chessMoves': chessMoves,
+      'chessWinner': chessWinner,
+      'chessWhite': chessWhite,
+      'chessBlack': chessBlack,
       'players': players.map((p) => p.toJson()).toList(),
     });
   }
 
   void startRound() {
     if ((phase != Phase.room && phase != Phase.results) || !allReady) return;
+    if (mode == GameMode.chess && players.length < 2) {
+      showToast('Chess needs 2 players (others can spectate)');
+      return;
+    }
     deadline = DateTime.now().add(const Duration(milliseconds: roundMs));
     round++;
-    // Deal a fresh random board and serve it to everyone.
-    board = generateBoard(_rng);
-    finder.board = board;
-    send({
-      't': 'start',
-      'node': meId,
-      'deadline': deadline!.millisecondsSinceEpoch,
-      'round': round,
-      'board': board.join(','),
-    });
+    switch (mode) {
+      case GameMode.scattergories:
+        sgLetter = sgLetters[_rng.nextInt(sgLetters.length)];
+        sgWords.clear();
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'letter': sgLetter,
+        });
+      case GameMode.sketchit:
+        sketchWord = finder.randomWord(_rng, 4, 9) ?? 'cat';
+        sketchDrawer = sortedPlayers[(round - 1) % players.length].id;
+        sketchStrokes.clear();
+        sketchSolved = false;
+        deadline = DateTime.now().add(const Duration(seconds: 90));
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'word': sketchWord,
+          'drawer': sketchDrawer,
+        });
+      case GameMode.chess:
+        chessMoves.clear();
+        chessWinner = '';
+        final seats = sortedPlayers;
+        chessWhite = seats[0].id;
+        chessBlack = seats.length > 1 ? seats[1].id : '';
+        deadline = DateTime.now().add(const Duration(hours: 1));
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'white': chessWhite,
+          'black': chessBlack,
+        });
+      case GameMode.boggle:
+        board = generateBoard(_rng);
+        finder.board = board;
+        send({
+          't': 'start',
+          'node': meId,
+          'deadline': deadline!.millisecondsSinceEpoch,
+          'round': round,
+          'mode': mode.wireName,
+          'board': board.join(','),
+        });
+      case GameMode.go:
+      case GameMode.wordtiles:
+        break; // not implemented
+    }
     _applyStart();
     notifyListeners();
   }
@@ -247,7 +469,13 @@ class Game extends ChangeNotifier {
     pendingWord = null;
     roundEpoch++;
     phase = Phase.play;
-    showToast('Round $round - find words!');
+    final label = switch (mode) {
+      GameMode.sketchit => 'Round $round - start drawing!',
+      GameMode.chess => 'Round $round - white moves first',
+      GameMode.scattergories => 'Round $round - words starting with $sgLetter!',
+      _ => 'Round $round - find words!',
+    };
+    showToast(label);
   }
 
   // ------------------------------------------------------------------ play
@@ -406,7 +634,23 @@ class Game extends ChangeNotifier {
         }
         final r = m['round'];
         if (r is num) round = r.toInt();
-        _adoptBoard(m);
+        mode = modeFromWire(m['mode'] as String?);
+        if (mode == GameMode.scattergories) {
+          sgLetter = (m['letter'] as String?) ?? '';
+          sgWords.clear();
+        } else if (mode == GameMode.sketchit) {
+          sketchWord = (m['word'] as String?) ?? '';
+          sketchDrawer = (m['drawer'] as String?) ?? '';
+          sketchStrokes.clear();
+          sketchSolved = false;
+        } else if (mode == GameMode.chess) {
+          chessMoves.clear();
+          chessWinner = '';
+          chessWhite = (m['white'] as String?) ?? '';
+          chessBlack = (m['black'] as String?) ?? '';
+        } else {
+          _adoptBoard(m);
+        }
         _applyStart();
       case 'claim':
         if (!isHost) return;
@@ -464,6 +708,72 @@ class Game extends ChangeNotifier {
           fromMe: false,
         ));
         _trimChat();
+      case 'sgSubmit':
+        if (phase != Phase.play || mode != GameMode.scattergories) return;
+        final w = ((m['word'] as String?) ?? '').trim().toLowerCase();
+        if (w.length < 3 || !w.startsWith(sgLetter.toLowerCase())) return;
+        if (!finder.hasWord(w)) return;
+        final list = sgWords.putIfAbsent(node, () => []);
+        if (!list.contains(w)) {
+          list.add(w);
+        }
+      case 'sketchStroke':
+        if (phase != Phase.play || mode != GameMode.sketchit) return;
+        if (node != sketchDrawer) return;
+        final stroke = m['stroke'];
+        if (stroke is Map) {
+          final s = stroke.cast<String, dynamic>();
+          final id = s['id'];
+          final pts = s['pts'];
+          if (id is String && pts is List) {
+            final existing =
+                sketchStrokes.where((x) => x['id'] == id).firstOrNull;
+            if (existing != null) {
+              (existing['pts'] as List).addAll(pts);
+            } else {
+              sketchStrokes.add(s);
+            }
+            if (sketchStrokes.length > 500) sketchStrokes.removeAt(0);
+          }
+        }
+      case 'sketchClear':
+        if (phase != Phase.play || mode != GameMode.sketchit) return;
+        if (node != sketchDrawer) return;
+        sketchStrokes.clear();
+      case 'sketchGuess':
+        if (phase != Phase.play || mode != GameMode.sketchit) return;
+        if (node == sketchDrawer || sketchSolved) return;
+        final guess = ((m['text'] as String?) ?? '').trim().toLowerCase();
+        if (guess != sketchWord.toLowerCase()) return;
+        if (!isHost) return; // the leader arbitrates the win
+        sketchSolved = true;
+        final drawer = players.where((p) => p.id == sketchDrawer).firstOrNull;
+        final guesser = players.where((p) => p.id == node).firstOrNull;
+        drawer?.score++;
+        guesser?.score++;
+        deadline = DateTime.now().subtract(const Duration(seconds: 1));
+        send({
+          't': 'sketchSolved',
+          'node': meId,
+          'word': sketchWord,
+          'drawer': sketchDrawer,
+          'guesser': node,
+        });
+        showToast('${guesser?.name ?? 'Someone'} guessed "${sketchWord}"!');
+      case 'sketchSolved':
+        if (mode != GameMode.sketchit) return;
+        sketchSolved = true;
+        sketchWord = (m['word'] as String?) ?? sketchWord;
+        if (!isHost) {
+          final drawer = players.where((p) => p.id == (m['drawer'] as String?)).firstOrNull;
+          final guesser = players.where((p) => p.id == (m['guesser'] as String?)).firstOrNull;
+          drawer?.score++;
+          guesser?.score++;
+        }
+        deadline = DateTime.now().subtract(const Duration(seconds: 1));
+      case 'chessMove':
+        if (phase != Phase.play || mode != GameMode.chess) return;
+        _applyChessMove(m, node);
       case 'ready':
         final p = players.where((p) => p.id == node).firstOrNull;
         if (p != null && m['ready'] is bool) {
@@ -512,6 +822,45 @@ class Game extends ChangeNotifier {
     if (dl is num) deadline = DateTime.fromMillisecondsSinceEpoch(dl.toInt());
     final r = m['round'];
     if (r is num) round = r.toInt();
+    mode = modeFromWire(m['mode'] as String?);
+    final letter = m['letter'];
+    if (letter is String && letter.isNotEmpty) sgLetter = letter;
+    final sg = m['sgWords'];
+    if (sg is Map) {
+      sgWords.clear();
+      for (final e in sg.entries) {
+        if (e.key is String && e.value is List) {
+          sgWords[e.key as String] = [
+            for (final w in (e.value as List)) if (w is String) w,
+          ];
+        }
+      }
+    }
+    final sw = m['sketchWord'];
+    if (sw is String && sw.isNotEmpty) sketchWord = sw;
+    final sd = m['sketchDrawer'];
+    if (sd is String && sd.isNotEmpty) sketchDrawer = sd;
+    // solved/winner are sticky within a round (start resets them) so a stale
+    // host snapshot can't regress them either.
+    sketchSolved = sketchSolved || m['sketchSolved'] == true;
+    final cm = m['chessMoves'];
+    if (cm is List) {
+      // The move log is append-only: a freshly elected host (e.g. a just-
+      // joined spectator with the smallest node id) may broadcast a stale
+      // snapshot; never truncate the local log - keep the longer one.
+      final incoming = [for (final v in cm) if (v is String) v];
+      if (incoming.length >= chessMoves.length) {
+        chessMoves
+          ..clear()
+          ..addAll(incoming);
+      }
+    }
+    final cw = m['chessWinner'];
+    if (cw is String && cw.isNotEmpty && chessWinner.isEmpty) chessWinner = cw;
+    final cwt = m['chessWhite'];
+    if (cwt is String && cwt.isNotEmpty) chessWhite = cwt;
+    final cbt = m['chessBlack'];
+    if (cbt is String && cbt.isNotEmpty) chessBlack = cbt;
     if (phase == Phase.play) {
       // mid-round sync: adopt the served board so everyone agrees
       _adoptBoard(m);
@@ -606,6 +955,183 @@ class Game extends ChangeNotifier {
     submitWord();
   }
 
+  /// Test/debug helper: end the current round immediately.
+  void debugEndRound() {
+    if (phase == Phase.play) {
+      deadline = DateTime.now().subtract(const Duration(seconds: 1));
+    }
+  }
+
+  /// Test/debug helper: force the room's game mode.
+  void debugSetMode(String wireName) {
+    mode = modeFromWire(wireName);
+    notifyListeners();
+  }
+
+  // ----------------------------------------------------------------- sketch
+
+  /// Drawer: append a stroke or a delta of points (canvas coords 0..1).
+  /// A new stroke sends [id] + start point; later deltas reuse the id and
+  /// only carry the new points so the wire stays light while drawing.
+  void sketchDraw(double color, double width, List<double> pts,
+      {String? id}) {
+    if (phase != Phase.play || mode != GameMode.sketchit) return;
+    if (meId != sketchDrawer) return;
+    if (id == null) {
+      sketchStrokes.add({'color': color, 'width': width, 'pts': pts});
+      if (sketchStrokes.length > 500) sketchStrokes.removeAt(0);
+      send({
+        't': 'sketchStroke',
+        'node': meId,
+        'stroke': {'color': color, 'width': width, 'pts': pts},
+      });
+      return;
+    }
+    final existing = sketchStrokes.where((x) => x['id'] == id).firstOrNull;
+    if (existing != null) {
+      (existing['pts'] as List).addAll(pts);
+    } else {
+      sketchStrokes.add({'id': id, 'color': color, 'width': width, 'pts': pts});
+    }
+    send({
+      't': 'sketchStroke',
+      'node': meId,
+      'stroke': {'id': id, 'color': color, 'width': width, 'pts': pts},
+    });
+  }
+
+  /// Drawer: clear the canvas.
+  void sketchClearCanvas() {
+    if (phase != Phase.play || mode != GameMode.sketchit) return;
+    if (meId != sketchDrawer) return;
+    sketchStrokes.clear();
+    send({'t': 'sketchClear', 'node': meId});
+  }
+
+  /// Guesser: send a guess.
+  void sketchGuess(String text) {
+    if (phase != Phase.play || mode != GameMode.sketchit) return;
+    if (meId == sketchDrawer || sketchSolved) return;
+    send({'t': 'sketchGuess', 'node': meId, 'name': myName, 'text': text.trim()});
+  }
+
+  // ----------------------------------------------------------------- chess
+
+  bool get chessWhiteTurn => chessMoves.length.isEven;
+  String get chessTurnId =>
+      chessWhiteTurn ? chessWhite : chessBlack;
+
+  /// Current player: attempt a move from-to ("e2", "e4").
+  bool chessTryMove(String from, String to) {
+    if (phase != Phase.play || mode != GameMode.chess) return false;
+    if (chessWinner.isNotEmpty) return false;
+    if (meId != chessTurnId) return false;
+    final f = ChessBoard.sq(from);
+    final t = ChessBoard.sq(to);
+    if (f < 0 || t < 0 || f == t) return false;
+    final b = ChessBoard.fromMoves(chessMoves);
+    if (!ChessBoard.targets(b, f).contains(t)) return false;
+    final move = '${from}${to}';
+    chessMoves.add(move);
+    send({'t': 'chessMove', 'node': meId, 'from': from, 'to': to});
+    _checkChessEnd(b);
+    notifyListeners();
+    return true;
+  }
+
+  void _applyChessMove(Map<String, dynamic> m, String node) {
+    if (chessWinner.isNotEmpty) return;
+    if (node != chessTurnId) return;
+    final f = ChessBoard.sq((m['from'] as String?) ?? '');
+    final t = ChessBoard.sq((m['to'] as String?) ?? '');
+    if (f < 0 || t < 0 || f == t) return;
+    final b = ChessBoard.fromMoves(chessMoves);
+    if (!ChessBoard.targets(b, f).contains(t)) return;
+    chessMoves.add('${m['from']}${m['to']}');
+    _checkChessEnd(b);
+    notifyListeners();
+  }
+
+  void _checkChessEnd(List<String> before) {
+    // A capture is simply the king disappearing from the board.
+    final after = ChessBoard.fromMoves(chessMoves);
+    if (before.contains('k') && !after.contains('k')) {
+      chessWinner = 'white';
+      players.where((p) => p.id == chessWhite).firstOrNull?.score++;
+      deadline = DateTime.now().subtract(const Duration(seconds: 1));
+      showToast('White captures the king - white wins!');
+      return;
+    }
+    if (before.contains('K') && !after.contains('K')) {
+      chessWinner = 'black';
+      players.where((p) => p.id == chessBlack).firstOrNull?.score++;
+      deadline = DateTime.now().subtract(const Duration(seconds: 1));
+      showToast('Black captures the king - black wins!');
+    }
+  }
+
+  // ------------------------------------------------------- room persistence
+
+  /// Rejoin the last room on startup (identity persists via the stored iroh
+  /// secret key; game state resyncs from the host snapshots).
+  void maybeRejoin() {
+    if (phase != Phase.lobby) return;
+    final storedRoom = _storageGet('boggle.room');
+    if (storedRoom == null || storedRoom.isEmpty) return;
+    final storedName = _storageGet('boggle.name') ?? '';
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (phase == Phase.lobby) {
+        showToast('Rejoining room $storedRoom');
+        join(roomCode: storedRoom, name: storedName);
+      }
+    });
+  }
+
+  /// Leave the current room and forget it locally.
+  void leaveRoom() {
+    if (phase == Phase.lobby || phase == Phase.joining) return;
+    send({'t': 'bye', 'node': meId});
+    _storageRemove('boggle.room');
+    players.clear();
+    chat.clear();
+    sgWords.clear();
+    sketchStrokes.clear();
+    chessMoves.clear();
+    path.clear();
+    pendingWord = null;
+    _lastHostId = '';
+    phase = Phase.lobby;
+    showToast('Left the room');
+    notifyListeners();
+  }
+
+  static String? _storageGet(String key) {
+    try {
+      final raw = _storage.callMethod<JSAny?>('getItem'.toJS, key.toJS);
+      if (raw != null && !raw.isUndefinedOrNull) return (raw as JSString).toDart;
+    } catch (_) {
+      /* storage unavailable */
+    }
+    return null;
+  }
+
+  static void _storageRemove(String key) {
+    try {
+      _storage.callMethod<JSAny?>('removeItem'.toJS, key.toJS);
+    } catch (_) {
+      /* storage unavailable */
+    }
+  }
+
+  void _persistRoom() {
+    try {
+      _storage.callMethod<JSAny?>('setItem'.toJS, 'boggle.room'.toJS, room.toJS);
+      _storage.callMethod<JSAny?>('setItem'.toJS, 'boggle.name'.toJS, myName.toJS);
+    } catch (_) {
+      /* storage unavailable */
+    }
+  }
+
   Map<String, dynamic> debugState() => {
         'phase': phase.name,
         'players': players.length,
@@ -616,7 +1142,14 @@ class Game extends ChangeNotifier {
         'cur': currentWord,
         'toast': toast,
         'error': _lastError,
+        'mode': mode.name,
+        'letter': sgLetter,
         'board': board.join(','),
+        'sgCount': sgWords[meId]?.length ?? 0,
+        'sgScore': sgScore(meId),
+        'sgScores': {for (final id in sgWords.keys) id: sgScore(id)},
+        'sgAll': sgAllWords.join(','),
+        'sgDupes': sgAllWords.where(sgIsDupe).join(','),
         'lastChat': chat.isEmpty ? '' : '${chat.last.name}|${chat.last.text}',
         'allReady': allReady,
         'myReady': me?.ready ?? false,
@@ -625,6 +1158,15 @@ class Game extends ChangeNotifier {
         'plist': [
           for (final p in players) {'score': p.score, 'words': p.words.length},
         ],
+        'sketchWord': sketchWord,
+        'sketchDrawer': sketchDrawer,
+        'sketchSolved': sketchSolved,
+        'sketchStrokes': sketchStrokes.length,
+        'chessMoves': chessMoves.join(','),
+        'chessWinner': chessWinner,
+        'chessWhite': chessWhite,
+        'chessBlack': chessBlack,
+        'pids': [for (final p in players) p.id],
       };
 
   String _lastError = '';

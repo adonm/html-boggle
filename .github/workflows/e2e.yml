@@ -44,3 +44,15 @@ jobs:
 
       - name: "E2E: two browsers join one room over real iroh relays"
         run: mise run test
+
+      - name: "E2E: scattergories duplicate cancellation"
+        run: mise run test-scatter
+
+      - name: "E2E: sketchit draw + guess round"
+        run: mise run test-sketch
+
+      - name: "E2E: capture chess with a mid-game spectator"
+        run: mise run test-chess
+
+      - name: "E2E: identity + room resume across reloads"
+        run: mise run test-resume

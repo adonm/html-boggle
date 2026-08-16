@@ -1,6 +1,6 @@
 # html-boggle
 
-A realtime multiplayer **Boggle** for the web — rendered with **Flutter** (Yaru theme), networked
+A realtime multiplayer **party-game suite** for the web — rendered with **Flutter** (Yaru theme), networked
 with **iroh gossip** (Rust → WebAssembly), tooled with **mise** and **Deno**. No server
 component: two people entering the same room code land on the same gossip channel with nothing
 but public pkarr relays in between.
@@ -18,6 +18,31 @@ but public pkarr relays in between.
 |           https://dns.iroh.link/pkarr (public infra)             |
 +-----------------------------------------------------------------+
 ```
+
+## Games
+
+The room is a shell for pick-and-play party games — the round starter picks one; the choice
+rides along in the `start` message so everyone lands in the same game. Each game has a short
+description + how-to guide right in the room's picker:
+
+- **Boggle** — the original: find words in the 4×4 board (3-minute rounds, classic scoring,
+  fresh leader-dealt board every round).
+- **Scattergories** — the round starter serves a random letter; everyone submits dictionary
+  words starting with it. Duplicates cancel at the reveal (classic rule); scoring is
+  deterministic on every client.
+- **SketchIt** — one player draws a secret word on a live canvas (strokes stream to everyone)
+  while the others type guesses; the exact answer scores for both the guesser and the drawer.
+  The drawer rotates each round.
+- **Capture Chess** — chess with a twist: capture the king to win (no check/checkmate
+  bookkeeping, no castling, pawns auto-promote to queens). Two players; everyone else watches
+  as a spectator. Moves are a replicated log, so everyone sees the same board.
+- **Go (9×9)** — coming soon.
+- **Word Tiles** — scrabble-style crossword with a 7-tile rack, coming soon.
+
+Every client keeps its **identity and room cached locally**: the iroh secret key, your name,
+and the last room code persist in `localStorage`, so a closed tab (even a crashed one) can
+rejoin the room as the same player and resync the whole game state from the host's snapshots.
+"Leave room" forgets the cached room.
 
 ## Why Flutter
 
@@ -66,6 +91,10 @@ mise run setup      # rust wasm target + vendored build inputs (wasm-bindgen-cli
 mise run build      # iroh wasm module + flutter web app -> dist/
 mise run dev        # build + watch + serve http://localhost:8000
 mise run test       # e2e: two headless browsers join one room and play a word
+mise run test-scatter  # e2e: scattergories round, duplicate cancellation
+mise run test-sketch   # e2e: sketchit draw + guess round
+mise run test-chess    # e2e: capture chess with a mid-game spectator
+mise run test-resume   # e2e: reload auto-rejoins the room; leave clears the cache
 ```
 
 Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — the dev
@@ -95,9 +124,9 @@ game has no server component. There is also a manually-triggered
 | `mise.toml`       | pinned tools + `setup` / `build` / `dev` / `serve` / `test` tasks |
 | `app/`            | the Flutter game: Yaru UI, game controller, word validation |
 | `net/`            | Rust crate: iroh 1.0 + iroh-gossip 0.101 → wasm-bindgen, pkarr rendezvous |
-| `glue/glue.js`    | bridge: pkarr discovery, Dart↔iroh event plumbing           |
+| `glue/glue.js`    | bridge: pkarr discovery, Dart↔iroh event plumbing, persisted identity |
 | `server/main.ts`  | Deno static file server for `dist/` (dev convenience only)  |
-| `scripts/`        | `setup.ts`, `build.ts`, `dev.ts` (pure Deno), `e2e-web.mjs` (playwright) |
+| `scripts/`        | `setup.ts`, `build.ts`, `dev.ts` (pure Deno), `e2e-*.mjs` (playwright) |
 
 ## Gossip message protocol
 
@@ -114,6 +143,10 @@ repeats (periodic hellos, claim retries) would otherwise be dropped.
 | `award` | host | word accepted: `word`, `points` |
 | `reject`| host | word denied: `reason` = `taken` / `invalid` |
 | `state` | host | authoritative snapshot (members, scores, words, phase, deadline) — sent when membership changes, every 10 s during play, and at round end |
+| `sgSubmit` | players | scattergories submission (`word`) |
+| `sketchStroke` / `sketchClear` | drawer | canvas stroke deltas (`id`, `color`, `width`, `pts`) / clear |
+| `sketchGuess` / `sketchSolved` | guessers / host | a guess; the host arbitrates the exact match and broadcasts the solved word |
+| `chessMove` | current player | `from`, `to` (e.g. `e2`/`e4`) appended to the replicated move log |
 
 Scoring is classic Boggle: 3–4 letters = 1, 5 = 2, 6 = 3, 7 = 5, 8+ = 11. Rounds are 3
 minutes; scores accumulate, found words reset each round. Word validation uses a public-domain
@@ -127,5 +160,9 @@ word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as
 - The room's pkarr packet is signed with a key anyone who knows the room code can derive —
   same trust model as the room code itself. Anyone who knows a code can join that room.
 - Word submissions are optimistic on non-host clients and host-arbitrated; claims are retried
-  until acknowledged and host snapshots self-heal state after connection drops.
+  until acknowledged and host snapshots self-heal state after connection drops. Your iroh
+  identity (secret key), name, and last room persist in `localStorage`, so reloading or
+  returning later rejoins the room as the same player; "Leave room" clears the cache.
+- Sketch strokes are ephemeral: a mid-round reconnect resyncs the word/drawer/scores but
+  not the in-progress canvas.
 - The dictionary is client-side; there is no anti-cheat. This is a party game.

@@ -40,6 +40,36 @@ void _installDebugHooks(Game game) {
       game.toggleReady();
     }).toJS,
   );
+  _window.setProperty(
+    '__boggleDebugSubmitScat'.toJS,
+    ((JSString word) {
+      game.submitScattergories(word.toDart);
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugEndRound'.toJS,
+    ((JSAny _) {
+      game.debugEndRound();
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugSetMode'.toJS,
+    ((JSString mode) {
+      game.debugSetMode(mode.toDart);
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugGuess'.toJS,
+    ((JSString text) {
+      game.sketchGuess(text.toDart);
+    }).toJS,
+  );
+  _window.setProperty(
+    '__boggleDebugChessMove'.toJS,
+    ((JSString from, JSString to) {
+      game.chessTryMove(from.toDart, to.toDart);
+    }).toJS,
+  );
 }
 
 Future<void> main() async {

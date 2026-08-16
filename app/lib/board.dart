@@ -28,7 +28,6 @@ List<String> deriveBoard(String room, int round) {
   final bytes = sha256.convert(utf8.encode('board:$room:$round')).bytes;
   return [for (var i = 0; i < 16; i++) dice[i][bytes[i] % 6].toLowerCase()];
 }
-
 /// iroh gossip topic id (32 bytes, hex) for a room.
 String topicHex(String room) => sha256.convert(utf8.encode('topic:$room')).toString();
 
@@ -67,6 +66,16 @@ class WordFinder {
 
   /// Can [w] be formed from adjacent tiles (each tile at most once)?
   bool forms(String w) => findPath(w) != null;
+
+  /// A random dictionary word within [minLen]..[maxLen] (for sketch rounds).
+  String? randomWord(Random rng, int minLen, int maxLen) {
+    if (_dict.isEmpty) return null;
+    for (var i = 0; i < 50; i++) {
+      final w = _dict[rng.nextInt(_dict.length)];
+      if (w.length >= minLen && w.length <= maxLen) return w;
+    }
+    return _dict[rng.nextInt(_dict.length)];
+  }
 
   /// Find a valid tile path for [w], or null.
   List<int>? findPath(String w) {

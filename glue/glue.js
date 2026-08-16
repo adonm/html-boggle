@@ -33,6 +33,24 @@ const N0_RELAYS = [
   "euc1-1.relay.n0.iroh.link.",
   "aps1-1.relay.n0.iroh.link.",
 ];
+
+/**
+ * Persisted identity: the same 32-byte secret key on every visit, so
+ * reconnecting to a room restores your node id and the room recognizes you.
+ */
+function loadSecret() {
+  const key = "boggle.secretKey";
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing && existing.length === 64) return existing;
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(key, hex);
+    return hex;
+  } catch {
+    return "";
+  }
+}
 const DEFAULT_RELAY = N0_RELAYS[0];
 
 /**
@@ -109,7 +127,7 @@ const glue = {
   /** Called by the Flutter app. Resolves with our node id. */
   async join(room, topicHex, name) {
     await init();
-    if (!this.net) this.net = await BoggleNet.new(await pickRelay());
+    if (!this.net) this.net = await BoggleNet.new_with_secret(loadSecret(), await pickRelay());
     console.log("[boggle] endpoint bound", this.net.node_id());
     const nodeId = this.net.node_id();
 
