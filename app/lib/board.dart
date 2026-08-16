@@ -1,8 +1,10 @@
-/// Board generation and word validation: deterministic per room code, so
-/// every player in a room sees the same dice and validates identically.
+/// Board generation: the leader deals a random board each round and serves it
+/// to everyone in the start message; the deterministic derivation below is
+/// only a fallback for old/missing boards.
 library;
 
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
@@ -14,9 +16,14 @@ const List<String> dice = [
   'EIOSST', 'ELRTTY', 'HIMNQU', 'HLNNRZ',
 ];
 
-/// 16 tiles for a room+round; "qu" occupies one tile. Deterministic per
-/// (room, round), so every player in the room sees the same board, but each
-/// round deals a fresh one.
+/// Deal a fresh random board: shuffle the classic dice and pick a random
+/// face per die. "qu" occupies one tile.
+List<String> generateBoard(Random rng) {
+  final shuffled = List.of(dice)..shuffle(rng);
+  return [for (final die in shuffled) die[rng.nextInt(6)].toLowerCase()];
+}
+
+/// Deterministic fallback board for a room+round ("qu" occupies one tile).
 List<String> deriveBoard(String room, int round) {
   final bytes = sha256.convert(utf8.encode('board:$room:$round')).bytes;
   return [for (var i = 0; i < 16; i++) dice[i][bytes[i] % 6].toLowerCase()];

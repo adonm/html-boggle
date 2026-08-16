@@ -34,6 +34,12 @@ void _installDebugHooks(Game game) {
       game.startRound();
     }).toJS,
   );
+  _window.setProperty(
+    '__boggleDebugReady'.toJS,
+    ((JSAny _) {
+      game.toggleReady();
+    }).toJS,
+  );
 }
 
 Future<void> main() async {

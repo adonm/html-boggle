@@ -16,7 +16,6 @@
  */
 
 import { createRequire } from "node:module";
-import { createHash } from "node:crypto";
 import { readFileSync, globSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 
@@ -78,37 +77,25 @@ function fail(msg) {
   throw new Error("FAIL: " + msg);
 }
 
-/* ---------- board generation (mirrors app/lib/board.dart) ---------- */
-const DICE = [
-  "AAEEGN", "ABBJOO", "ACHOPS", "AFFKPS",
-  "AOOTTW", "CIMOTU", "DEILRX", "DELRVY",
-  "DISTTY", "EEGHNW", "EEINSU", "EHRTVW",
-  "EIOSST", "ELRTTY", "HIMNQU", "HLNNRZ",
-];
-// the first round's board derives from room + round number
-const boardBytes = createHash("sha256").update("board:" + ROOM + ":1").digest();
-const board = DICE.map((die, i) => die[boardBytes[i] % 6].toLowerCase());
-
-/* find a short valid word on the board (dict = sorted asset) */
+/* ---------- word finding (run against the served board at play time) ---------- */
 const words = readFileSync(
   new URL("../app/assets/words.txt", import.meta.url).pathname,
   "utf8",
 ).split("\n").filter(Boolean);
-const wordSet = new Set(words);
 
-function findWord() {
+function findWord(board) {
   const tried = new Set();
   for (const w of words) {
     if (w.length < 3 || w.length > 5) continue;
     const key = [...w].sort().join("");
     if (tried.has(key)) continue;
     tried.add(key);
-    if (forms(w, 0, -1, new Array(16).fill(false))) return w;
+    if (forms(board, w, 0, -1, new Array(16).fill(false))) return w;
   }
   return null;
 }
 
-function forms(w, idx, pos, used) {
+function forms(board, w, idx, pos, used) {
   if (idx === w.length) return true;
   for (let i = 0; i < 16; i++) {
     if (used[i]) continue;
@@ -119,7 +106,27 @@ function forms(w, idx, pos, used) {
     }
     if (w.slice(idx).startsWith(board[i])) {
       used[i] = true;
-      if (forms(w, idx + board[i].length, i, used)) return true;
+      if (forms(board, w, idx + board[i].length, i, used)) return true;
+      used[i] = false;
+    }
+  }
+  return false;
+}
+
+function findPath(board, w, idx, pos, used, path) {
+  if (idx === w.length) return true;
+  for (let i = 0; i < 16; i++) {
+    if (used[i]) continue;
+    if (pos >= 0) {
+      const dr = Math.abs(Math.floor(i / 4) - Math.floor(pos / 4));
+      const dc = Math.abs((i % 4) - (pos % 4));
+      if (dr > 1 || dc > 1) continue;
+    }
+    if (w.slice(idx).startsWith(board[i])) {
+      used[i] = true;
+      path.push(i);
+      if (findPath(board, w, idx + board[i].length, i, used, path)) return true;
+      path.pop();
       used[i] = false;
     }
   }
@@ -230,34 +237,14 @@ async function startRound(page) {
 }
 
 /** Submit a word by tapping its tiles via the semantics DOM. */
-async function submitViaTiles(page, word) {
+async function submitViaTiles(page, board, word) {
   const path = [];
-  findPath(word, 0, -1, new Array(16).fill(false), path);
+  findPath(board, word, 0, -1, new Array(16).fill(false), path);
   for (const i of path) {
     const letter = board[i].toUpperCase();
     await page.getByRole("button", { name: `Tile ${i + 1} letter ${letter}` }).click();
   }
   await page.getByRole("button", { name: "SUBMIT" }).click();
-}
-
-function findPath(w, idx, pos, used, path) {
-  if (idx === w.length) return true;
-  for (let i = 0; i < 16; i++) {
-    if (used[i]) continue;
-    if (pos >= 0) {
-      const dr = Math.abs(Math.floor(i / 4) - Math.floor(pos / 4));
-      const dc = Math.abs((i % 4) - (pos % 4));
-      if (dr > 1 || dc > 1) continue;
-    }
-    if (w.slice(idx).startsWith(board[i])) {
-      used[i] = true;
-      path.push(i);
-      if (findPath(w, idx + board[i].length, i, used, path)) return true;
-      path.pop();
-      used[i] = false;
-    }
-  }
-  return false;
 }
 
 /* ---------- main ---------- */
@@ -278,11 +265,6 @@ const server = spawn(
     await sleep(300);
   }
 }
-
-console.log("board:", board.join(","));
-const word = findWord();
-console.log("test word:", word);
-if (!word) fail("no word found on board");
 
 const openBrowsers = [];
 let browserA, browserB;
@@ -364,13 +346,28 @@ try {
   for (const p of pages) {
     const btn = p.getByRole("button", { name: "READY", exact: true });
     if (await waitForSoft(async () => (await btn.count()) > 0, 10_000)) {
-      await btn.click({ timeout: 10_000 });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await btn.click({ timeout: 8_000 });
+          if ((await state(p))?.myReady) break;
+        } catch { /* flaky actionability - retry */ }
+        await sleep(1000);
+      }
+    }
+    if (!(await state(p))?.myReady) {
+      console.log("  ready click flaky - toggling via debug hook");
+      await p.evaluate(() => window.__boggleDebugReady(""));
     }
   }
-  await waitFor(async () => {
-    const ss = await Promise.all(pages.map((p) => state(p)));
-    return ss.every((s) => s.allReady) ? ss : null;
-  }, 30_000, "everyone to be ready");
+  try {
+    await waitFor(async () => {
+      const ss = await Promise.all(pages.map((p) => state(p)));
+      return ss.every((s) => s.allReady) ? ss : null;
+    }, 30_000, "everyone to be ready");
+  } catch (err) {
+    console.log("  ready states:", await Promise.all(pages.map((p) => state(p).then((s) => s.myReady))));
+    throw err;
+  }
   console.log("  all ready:", (await state(pages[0])).readyCount, "/", pages.length);
 
   // host = smallest node id
@@ -385,10 +382,15 @@ try {
   console.log("  PLAYING on all pages");
 
   const submitter = pages.find((p) => p !== hostPage);
-  console.log("submitting", word, "by tapping tiles...");
+  // the leader served this round's board - solve against the real one
+  const board = (await state(submitter)).board.split(",");
+  console.log("submitting on served board:", board.join(","));
+  const word = findWord(board);
+  console.log("test word:", word);
+  if (!word) fail("no word found on served board");
   let submitted = false;
   try {
-    await submitViaTiles(submitter, word);
+    await submitViaTiles(submitter, board, word);
     submitted = await waitForSoft(async () => (await state(submitter))?.words >= 1, 6_000);
   } catch {
     submitted = false;

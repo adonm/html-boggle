@@ -131,7 +131,9 @@ class Game extends ChangeNotifier {
     final nm = name.trim().isEmpty ? randomName() : name.trim();
     myName = nm;
     room = rm;
-    board = deriveBoard(rm, round);
+    // Placeholder only - the play board always arrives with the start/state
+    // messages from whoever starts the round.
+    board = generateBoard(_rng);
     finder.board = board;
     phase = Phase.joining;
     notifyListeners();
@@ -213,6 +215,7 @@ class Game extends ChangeNotifier {
       'phase': ph,
       'deadline': deadline?.millisecondsSinceEpoch ?? 0,
       'round': round,
+      'board': board.join(','),
       'players': players.map((p) => p.toJson()).toList(),
     });
   }
@@ -221,11 +224,15 @@ class Game extends ChangeNotifier {
     if ((phase != Phase.room && phase != Phase.results) || !allReady) return;
     deadline = DateTime.now().add(const Duration(milliseconds: roundMs));
     round++;
+    // Deal a fresh random board and serve it to everyone.
+    board = generateBoard(_rng);
+    finder.board = board;
     send({
       't': 'start',
       'node': meId,
       'deadline': deadline!.millisecondsSinceEpoch,
       'round': round,
+      'board': board.join(','),
     });
     _applyStart();
     notifyListeners();
@@ -236,10 +243,6 @@ class Game extends ChangeNotifier {
       p.words.clear();
       p.ready = false;
     }
-    // A fresh board every round, identical for everyone: it derives from the
-    // room code plus the round number carried in the start message.
-    board = deriveBoard(room, round);
-    finder.board = board;
     path.clear();
     pendingWord = null;
     roundEpoch++;
@@ -403,6 +406,7 @@ class Game extends ChangeNotifier {
         }
         final r = m['round'];
         if (r is num) round = r.toInt();
+        _adoptBoard(m);
         _applyStart();
       case 'claim':
         if (!isHost) return;
@@ -509,10 +513,25 @@ class Game extends ChangeNotifier {
     final r = m['round'];
     if (r is num) round = r.toInt();
     if (phase == Phase.play) {
-      // mid-round sync: make sure we're on this round's board
-      board = deriveBoard(room, round);
-      finder.board = board;
+      // mid-round sync: adopt the served board so everyone agrees
+      _adoptBoard(m);
     }
+  }
+
+  /// Adopt the board served by the round starter (start/state messages).
+  /// Falls back to the deterministic derivation if the message has none.
+  void _adoptBoard(Map<String, dynamic> m) {
+    final b = m['board'];
+    if (b is String) {
+      final tiles = b.split(',');
+      if (tiles.length == 16 && tiles.every((t) => t.isNotEmpty)) {
+        board = tiles;
+        finder.board = board;
+        return;
+      }
+    }
+    board = deriveBoard(room, round);
+    finder.board = board;
   }
 
   // ------------------------------------------------------------------ tick
@@ -597,6 +616,7 @@ class Game extends ChangeNotifier {
         'cur': currentWord,
         'toast': toast,
         'error': _lastError,
+        'board': board.join(','),
         'lastChat': chat.isEmpty ? '' : '${chat.last.name}|${chat.last.text}',
         'allReady': allReady,
         'myReady': me?.ready ?? false,
