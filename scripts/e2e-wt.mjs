@@ -8,81 +8,19 @@
  * Run:  mise run test-wt
  */
 
-import { createRequire } from "node:module";
-import { globSync, readFileSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
 
-function loadPlaywright() {
-  const pwDir = new URL("../.cache/pw/", import.meta.url).pathname;
-  const req = createRequire(pwDir + "placeholder.js");
-  try {
-    return req("playwright-core");
-  } catch {
-    console.log("installing playwright-core into .cache/pw ...");
-    const r = spawnSync("npm", ["install", "--prefix", pwDir, "--no-save", "playwright-core"], {
-      stdio: "inherit",
-    });
-    if (r.status !== 0) throw new Error("npm install playwright-core failed");
-    return req("playwright-core");
-  }
-}
-const { chromium } = loadPlaywright();
+import { readFileSync } from "node:fs";
+import {
+  launchBrowser,
+  launchServer,
+  newPage,
+  state,
+  waitFor,
+  sleep,
+  fail,
+} from "./e2e-lib.mjs";
 
-function findShell() {
-  if (process.env.PW_SHELL) return process.env.PW_SHELL;
-  const roots = [`${process.env.HOME}/.cache/ms-playwright`, "/root/.cache/ms-playwright"];
-  for (const root of roots) {
-    try {
-      const hits = globSync(
-        `${root}/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell`,
-      );
-      if (hits.length > 0) return hits.sort().at(-1);
-    } catch { /* not found */ }
-  }
-  throw new Error(
-    "no chromium headless shell found - run: npx playwright install chromium-headless-shell",
-  );
-}
-
-const SHELL = findShell();
-const PORT = 9000 + Math.floor(Math.random() * 500);
-const BASE = `http://localhost:${PORT}`;
-const ROOM = "wtts" + Date.now().toString(36).slice(-6);
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const CHROMIUM_ARGS = [
-  "--enable-unsafe-swiftshader",
-  "--use-angle=swiftshader",
-  "--disable-background-timer-throttling",
-  "--disable-backgrounding-occluded-windows",
-  "--disable-renderer-backgrounding",
-  "--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion",
-];
-
-function fail(msg) {
-  throw new Error("FAIL: " + msg);
-}
-
-async function state(page) {
-  return await page.evaluate(() => {
-    if (typeof window.__boggleDebugState !== "function") return null;
-    try {
-      return JSON.parse(window.__boggleDebugState(""));
-    } catch {
-      return null;
-    }
-  });
-}
-
-async function waitFor(fn, timeoutMs, what) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const v = await fn();
-    if (v) return v;
-    await sleep(1000);
-  }
-  fail(`timed out waiting for ${what}`);
-}
+const { server, base, room } = await launchServer("wtts");
 
 // can the word be spelled with the multiset of rack letters?
 function spellable(word, rack) {
@@ -95,35 +33,18 @@ function spellable(word, rack) {
   return true;
 }
 
-console.log("starting server on :" + PORT + " ...");
-const server = spawn(
-  "miniserve",
-  ["dist", "--port", String(PORT), "--index", "index.html"],
-  { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" },
-);
-{
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${BASE}/`);
-      if (r.ok) break;
-    } catch { /* not up yet */ }
-    await sleep(300);
-  }
-}
-
 let browserA, browserB;
 try {
-  browserA = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
-  browserB = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
+  browserA = await launchBrowser();
+  browserB = await launchBrowser();
   const pageA = await (await browserA.newContext({ viewport: { width: 960, height: 700 } })).newPage();
   const pageB = await (await browserB.newContext({ viewport: { width: 960, height: 700 } })).newPage();
   for (const p of [pageA, pageB]) {
-    await p.goto(BASE, { waitUntil: "load", timeout: 60_000 });
+    await p.goto(base, { waitUntil: "load", timeout: 60_000 });
     await waitFor(() => state(p), 90_000, "flutter booted");
   }
-  await pageA.evaluate((r) => window.__boggleDebugJoin(r, "Alice"), ROOM);
-  await pageB.evaluate((r) => window.__boggleDebugJoin(r, "Bob"), ROOM);
+  await pageA.evaluate((r) => window.__boggleDebugJoin(r, "Alice"), room);
+  await pageB.evaluate((r) => window.__boggleDebugJoin(r, "Bob"), room);
   await waitFor(async () => {
     const a = await state(pageA);
     const b = await state(pageB);

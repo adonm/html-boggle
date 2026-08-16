@@ -15,67 +15,16 @@
  * Run:  mise run test
  */
 
-import { createRequire } from "node:module";
-import { readFileSync, globSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
-
-function loadPlaywright() {
-  const pwDir = new URL("../.cache/pw/", import.meta.url).pathname;
-  const req = createRequire(pwDir + "placeholder.js");
-  try {
-    return req("playwright-core");
-  } catch {
-    console.log("installing playwright-core into .cache/pw ...");
-    const r = spawnSync("npm", ["install", "--prefix", pwDir, "--no-save", "playwright-core"], {
-      stdio: "inherit",
-    });
-    if (r.status !== 0) throw new Error("npm install playwright-core failed");
-    return req("playwright-core");
-  }
-}
-const { chromium } = loadPlaywright();
-
-function findShell() {
-  if (process.env.PW_SHELL) return process.env.PW_SHELL;
-  const roots = [
-    `${process.env.HOME}/.cache/ms-playwright`,
-    "/root/.cache/ms-playwright",
-  ];
-  for (const root of roots) {
-    try {
-      const hits = globSync(
-        `${root}/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell`,
-      );
-      if (hits.length > 0) return hits.sort().at(-1);
-    } catch { /* not found */ }
-  }
-  throw new Error(
-    "no chromium headless shell found - run: npx playwright install chromium-headless-shell",
-  );
-}
-
-const CHROMIUM_ARGS = [
-  "--enable-unsafe-swiftshader",
-  "--use-angle=swiftshader",
-  // The headless shell treats pages as backgrounded and throttles timers to
-  // ~1/min (IntensiveWakeUpThrottling), which stalls the game loop and the
-  // gossip event delivery. Disable all of that.
-  "--disable-background-timer-throttling",
-  "--disable-backgrounding-occluded-windows",
-  "--disable-renderer-backgrounding",
-  "--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion",
-];
-
-const SHELL = findShell();
-const PORT = 8000 + Math.floor(Math.random() * 2000);
-const BASE = `http://localhost:${PORT}`;
-const ROOM = "e2e" + Date.now().toString(36).slice(-6);
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function fail(msg) {
-  throw new Error("FAIL: " + msg);
-}
+import { readFileSync } from "node:fs";
+import {
+  launchBrowser,
+  launchServer,
+  newPage,
+  state,
+  waitFor,
+  sleep,
+  fail,
+} from "./e2e-lib.mjs";
 
 /* ---------- word finding (run against the served board at play time) ---------- */
 const words = readFileSync(
@@ -133,28 +82,6 @@ function findPath(board, w, idx, pos, used, path) {
   return false;
 }
 
-/* ---------- helpers ---------- */
-async function state(page) {
-  return await page.evaluate(() => {
-    if (typeof window.__boggleDebugState !== "function") return null;
-    try {
-      return JSON.parse(window.__boggleDebugState(""));
-    } catch {
-      return null;
-    }
-  });
-}
-
-async function waitFor(fn, timeoutMs, what) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const v = await fn();
-    if (v) return v;
-    await sleep(1000);
-  }
-  fail(`timed out waiting for ${what}`);
-}
-
 async function waitForSoft(fn, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -176,7 +103,7 @@ async function joinRoom(page, name) {
     }
   });
   page.on("pageerror", (e) => console.log(`  [${name} pageerror]`, String(e).slice(0, 200)));
-  await page.goto(BASE, { waitUntil: "load", timeout: 60_000 });
+  await page.goto(base, { waitUntil: "load", timeout: 60_000 });
   await waitFor(() => state(page), 90_000, `${name}: flutter booted`);
 
   let joined = null;
@@ -187,7 +114,7 @@ async function joinRoom(page, name) {
     // Click to focus first (Flutter wires its real editing input), then type:
     // filling the semantics input directly doesn't reliably reach Flutter, and
     // its value/label change once focused. The first keystroke can also race
-    // the hidden input attachment, so verify the ROOM via game state after
+    // the hidden input attachment, so verify the room via game state after
     // joining and retry the lobby if a character got eaten.
     await nameInput.click();
     await sleep(300);
@@ -197,14 +124,14 @@ async function joinRoom(page, name) {
       await roomInput.click();
       await sleep(300);
       await page.keyboard.press("Control+a");
-      await page.keyboard.type(ROOM, { delay: 40 });
+      await page.keyboard.type(room, { delay: 40 });
       await sleep(200);
       await joinBtn.click();
       const s = await waitForSoft(async () => {
         const st = await state(page);
         return st && (st.phase === "room" || st.phase === "joining") ? st : null;
       }, 25_000);
-      if (s && s.room === ROOM) {
+      if (s && s.room === room) {
         joined = s;
         break;
       }
@@ -216,7 +143,7 @@ async function joinRoom(page, name) {
     console.log(`  ${name}: lobby UI flaky - joining via debug hook`);
     await page.evaluate(
       ([r, n]) => window.__boggleDebugJoin(r, n),
-      [ROOM, name],
+      [room, name],
     );
   }
   return await waitFor(async () => {
@@ -247,31 +174,15 @@ async function submitViaTiles(page, board, word) {
   await page.getByRole("button", { name: "SUBMIT" }).click();
 }
 
-/* ---------- main ---------- */
-console.log("starting server on :" + PORT + " ...");
-const server = spawn(
-  "miniserve",
-  ["dist", "--port", String(PORT), "--index", "index.html"],
-  { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" },
-);
-{
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${BASE}/`);
-      if (r.ok) break;
-    } catch { /* not up yet */ }
-    await sleep(300);
-  }
-}
+const { server, base, room } = await launchServer("e2e");
 
 const openBrowsers = [];
 let browserA, browserB;
 try {
   // Two separate browser processes: a single headless browser throttles the
   // sockets of its non-active contexts, which breaks the P2P overlay.
-  browserA = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
-  browserB = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
+  browserA = await launchBrowser();
+  browserB = await launchBrowser();
   openBrowsers.push(browserA, browserB);
 
   console.log("page A (Alice)...");
@@ -313,7 +224,7 @@ try {
     await sleep(600);
     const link = await pageA.evaluate(() => navigator.clipboard.readText());
     console.log("  share link:", link);
-    if (!link.includes("?room=" + ROOM)) fail("share link missing the room code");
+    if (!link.includes("?room=" + room)) fail("share link missing the room code");
 
     const ctxC = await browserB.newContext({ viewport: { width: 960, height: 600 } });
     const pageC = await ctxC.newPage();
@@ -328,7 +239,7 @@ try {
       const s = await state(pageC);
       return s && (s.phase === "room" || s.phase === "joining") ? s : null;
     }, 60_000, "player C: joined room");
-    if (!joinedC || joinedC.room !== ROOM) fail("deep link did not prefill the room code");
+    if (!joinedC || joinedC.room !== room) fail("deep link did not prefill the room code");
     pages = [pageA, pageB, pageC];
     await waitFor(async () => {
       const ss = await Promise.all(pages.map((p) => state(p)));
