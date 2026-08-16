@@ -24,11 +24,9 @@ import 'games/sketch_logic.dart';
 import 'games/wt_logic.dart';
 import 'haptics.dart';
 import 'net.dart';
+import 'storage.dart';
 
 export 'games/game_logic.dart' show GameMode, GameModeInfo, Phase, Player;
-
-@JS('window.localStorage')
-external JSObject get _storage;
 
 @JS('window')
 external JSObject get _window;
@@ -224,7 +222,7 @@ class Game extends ChangeNotifier implements GameHost {
       lastHello = null;
       lastState = DateTime.now();
       sendHello();
-      _persistRoom();
+      persistRoom(rm, nm);
       showToast('Joined room "$rm"');
     } catch (err, st) {
       phase = Phase.lobby;
@@ -574,13 +572,13 @@ class Game extends ChangeNotifier implements GameHost {
   /// secret key; game state resyncs from the host snapshots).
   void maybeRejoin() {
     if (phase != Phase.lobby) return;
-    final storedRoom = _storageGet('boggle.room');
-    if (storedRoom == null || storedRoom.isEmpty) return;
-    final storedName = _storageGet('boggle.name') ?? '';
+    final cached = storedRoom;
+    if (cached == null || cached.isEmpty) return;
+    final name = storedName ?? '';
     Future.delayed(const Duration(milliseconds: 800), () {
       if (phase == Phase.lobby) {
-        showToast('Rejoining room $storedRoom');
-        join(roomCode: storedRoom, name: storedName);
+        showToast('Rejoining room $cached');
+        join(roomCode: cached, name: name);
       }
     });
   }
@@ -589,7 +587,7 @@ class Game extends ChangeNotifier implements GameHost {
   void leaveRoom() {
     if (phase == Phase.lobby || phase == Phase.joining) return;
     send({'t': 'bye', 'node': meId});
-    _storageRemove('boggle.room');
+    forgetRoom();
     players.clear();
     chat.clear();
     _logic = createLogic(mode, this);
@@ -598,16 +596,6 @@ class Game extends ChangeNotifier implements GameHost {
     phase = Phase.lobby;
     showToast('Left the room');
     notifyListeners();
-  }
-
-  static String? _storageGet(String key) {
-    try {
-      final raw = _storage.callMethod<JSAny?>('getItem'.toJS, key.toJS);
-      if (raw != null && !raw.isUndefinedOrNull) return (raw as JSString).toDart;
-    } catch (_) {
-      /* storage unavailable */
-    }
-    return null;
   }
 
   /// Debug: raw per-type receive counters from the glue layer.
@@ -621,23 +609,6 @@ class Game extends ChangeNotifier implements GameHost {
       /* not available */
     }
     return '';
-  }
-
-  static void _storageRemove(String key) {
-    try {
-      _storage.callMethod<JSAny?>('removeItem'.toJS, key.toJS);
-    } catch (_) {
-      /* storage unavailable */
-    }
-  }
-
-  void _persistRoom() {
-    try {
-      _storage.callMethod<JSAny?>('setItem'.toJS, 'boggle.room'.toJS, room.toJS);
-      _storage.callMethod<JSAny?>('setItem'.toJS, 'boggle.name'.toJS, myName.toJS);
-    } catch (_) {
-      /* storage unavailable */
-    }
   }
 
   Map<String, dynamic> debugState() => {
