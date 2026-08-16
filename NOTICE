@@ -1,2 +1,6 @@
 html-boggle
 Copyright 2026 Adon Metcalfe
+
+Chess piece artwork is rendered by the chess_vectors_flutter package
+(MIT license, https://pub.dev/packages/chess_vectors_flutter), based on the
+public chess piece vectors from Wikimedia Commons.

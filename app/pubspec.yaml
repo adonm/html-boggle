@@ -18,6 +18,7 @@ dependencies:
   audioplayers: ^6.2.0
   qr_flutter: ^4.1.0
   vibration: ^2.1.0
+  chess_vectors_flutter: ^1.1.0
 
 dev_dependencies:
   flutter_test:

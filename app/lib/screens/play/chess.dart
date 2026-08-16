@@ -167,12 +167,10 @@ class _ChessPlayBodyState extends State<ChessPlayBody> {
             alignment: Alignment.center,
             children: [
               if (piece != '.')
-                CustomPaint(
-                  size: Size.square(sq * 0.92),
-                  painter: ChessPiecePainter(
-                    piece: piece,
-                    white: ChessBoard.isWhite(piece),
-                  ),
+                ChessPiece(
+                  piece: piece,
+                  white: ChessBoard.isWhite(piece),
+                  size: sq * 0.9,
                 ),
               if (target)
                 Container(
@@ -227,11 +225,10 @@ class _ChessPlayBodyState extends State<ChessPlayBody> {
                     child: SizedBox(
                       width: 52,
                       height: 52,
-                      child: CustomPaint(
-                        painter: ChessPiecePainter(
-                          piece: p.toUpperCase(),
-                          white: true,
-                        ),
+                      child: ChessPiece(
+                        piece: p.toUpperCase(),
+                        white: true,
+                        size: 52,
                       ),
                     ),
                   ),
