@@ -9,8 +9,41 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
+import 'package:flutter/services.dart';
+
 @JS('window')
 external JSObject get _window;
+
+@JS('window.location')
+external JSObject get _jsLocation;
+
+@JS('navigator')
+external JSObject get _navigator;
+
+/// The full page URL, including the query string.
+/// (document.baseURI drops it, so Uri.base can't see ?room= deep links.)
+String get pageHref => (_jsLocation.getProperty<JSString>('href'.toJS)).toDart;
+
+/// Share [url] via the native share sheet on platforms that have it (mobile
+/// browsers); falls back to copying to the clipboard. Returns true when the
+/// native sheet was used.
+Future<bool> shareLink({required String title, required String url}) async {
+  try {
+    final share = _navigator.getProperty<JSAny?>('share'.toJS);
+    if (share != null && !share.isUndefinedOrNull) {
+      final promise = _navigator.callMethod<JSAny?>(
+        'share'.toJS,
+        {'title': title, 'url': url}.jsify(),
+      ) as JSPromise<JSAny?>;
+      await promise.toDart;
+      return true;
+    }
+  } catch (_) {
+    /* no Web Share API, or the user dismissed the sheet - fall through */
+  }
+  await Clipboard.setData(ClipboardData(text: url));
+  return false;
+}
 
 class NetBridge {
   NetBridge._();

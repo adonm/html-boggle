@@ -14,9 +14,11 @@ const List<String> dice = [
   'EIOSST', 'ELRTTY', 'HIMNQU', 'HLNNRZ',
 ];
 
-/// 16 tiles for a room; "qu" occupies one tile. Deterministic per room.
-List<String> deriveBoard(String room) {
-  final bytes = sha256.convert(utf8.encode('board:$room')).bytes;
+/// 16 tiles for a room+round; "qu" occupies one tile. Deterministic per
+/// (room, round), so every player in the room sees the same board, but each
+/// round deals a fresh one.
+List<String> deriveBoard(String room, int round) {
+  final bytes = sha256.convert(utf8.encode('board:$room:$round')).bytes;
   return [for (var i = 0; i < 16; i++) dice[i][bytes[i] % 6].toLowerCase()];
 }
 

@@ -131,7 +131,7 @@ class Game extends ChangeNotifier {
     final nm = name.trim().isEmpty ? randomName() : name.trim();
     myName = nm;
     room = rm;
-    board = deriveBoard(rm);
+    board = deriveBoard(rm, round);
     finder.board = board;
     phase = Phase.joining;
     notifyListeners();
@@ -236,6 +236,10 @@ class Game extends ChangeNotifier {
       p.words.clear();
       p.ready = false;
     }
+    // A fresh board every round, identical for everyone: it derives from the
+    // room code plus the round number carried in the start message.
+    board = deriveBoard(room, round);
+    finder.board = board;
     path.clear();
     pendingWord = null;
     roundEpoch++;
@@ -504,6 +508,11 @@ class Game extends ChangeNotifier {
     if (dl is num) deadline = DateTime.fromMillisecondsSinceEpoch(dl.toInt());
     final r = m['round'];
     if (r is num) round = r.toInt();
+    if (phase == Phase.play) {
+      // mid-round sync: make sure we're on this round's board
+      board = deriveBoard(room, round);
+      finder.board = board;
+    }
   }
 
   // ------------------------------------------------------------------ tick

@@ -5,10 +5,10 @@ library;
 
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import 'game.dart';
+import 'net.dart';
 import 'theme.dart';
 
 const double _cardRadius = 12;
@@ -227,8 +227,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   void initState() {
     super.initState();
-    // Deep links: /?room=code prefills the room field.
-    final room = Uri.base.queryParameters['room'];
+    // Deep links: /?room=code prefills the room field. Read from the real
+    // page URL - Uri.base is the <base href> and has no query string.
+    final url = Uri.tryParse(pageHref);
+    final room = url?.queryParameters['room'];
     if (room != null && room.isNotEmpty) {
       _room.text = room;
       widget.game.showToast('Room $room - tap JOIN to enter');
@@ -679,11 +681,15 @@ class RoomScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       OutlinedButton.icon(
                         onPressed: () async {
-                          final url = Uri.base
-                              .replace(queryParameters: {'room': g.room}, fragment: '')
+                          final url = (Uri.tryParse(pageHref) ?? Uri.base)
+                              .replace(queryParameters: {'room': g.room})
+                              .removeFragment()
                               .toString();
-                          await Clipboard.setData(ClipboardData(text: url));
-                          g.showToast('Link copied - share it!');
+                          final shared = await shareLink(
+                            title: 'Boggle room ${g.room}',
+                            url: url,
+                          );
+                          g.showToast(shared ? 'Shared!' : 'Link copied - share it!');
                         },
                         icon: const Icon(Icons.link),
                         label: const Text('SHARE LINK'),
