@@ -5,32 +5,29 @@ library;
 
 import '../chess.dart';
 import 'game_logic.dart';
+import 'turn_game.dart';
 
-class ChessLogic extends GameLogic {
+class ChessLogic extends TurnGameLogic<String> {
   ChessLogic(super.host);
 
   @override
   String get wireName => 'chess';
 
-  final List<String> moves = [];
-  String winner = '';
-  String white = '';
-  String black = '';
-
-  @override
-  bool get needsTwoPlayers => true;
-
   @override
   String get startToast => 'Round ${host.round} - white moves first';
+
+  /// White = seats[0], black = seats[1].
+  String get white => seats.isEmpty ? '' : seats[0];
+  String get black => seats.length < 2 ? '' : seats[1];
+  bool get whiteTurn => moves.length.isEven;
+  @override
+  String get turnId => whiteTurn ? white : black;
 
   @override
   void populateStart(Map<String, dynamic> msg) {
     moves.clear();
     winner = '';
-    final seats = host.sortedPlayers;
-    white = seats[0].id;
-    black = seats.length > 1 ? seats[1].id : '';
-    host.deadline = DateTime.now().add(const Duration(hours: 1));
+    pinSeats(2);
     msg['white'] = white;
     msg['black'] = black;
   }
@@ -39,14 +36,11 @@ class ChessLogic extends GameLogic {
   void applyStart(Map<String, dynamic> m) {
     moves.clear();
     winner = '';
-    white = (m['white'] as String?) ?? '';
-    black = (m['black'] as String?) ?? '';
+    seats = [
+      (m['white'] as String?) ?? '',
+      (m['black'] as String?) ?? '',
+    ]..removeWhere((s) => s.isEmpty);
   }
-
-  bool get whiteTurn => moves.length.isEven;
-  String get turnId => whiteTurn ? white : black;
-  @override
-  bool get isMyTurn => host.meId == turnId;
 
   @override
   void onMessage(String type, Map<String, dynamic> m, String from) {
@@ -67,21 +61,12 @@ class ChessLogic extends GameLogic {
   void adoptState(Map<String, dynamic> m) {
     final cm = m['chessMoves'];
     if (cm is List) {
-      // The move log is append-only: a freshly elected host may broadcast a
-      // stale snapshot; never truncate the local log - keep the longer one.
-      final incoming = [for (final v in cm) if (v is String) v];
-      if (incoming.length >= moves.length) {
-        moves
-          ..clear()
-          ..addAll(incoming);
-      }
+      adoptLonger([for (final v in cm) if (v is String) v]);
     }
-    final cw = m['chessWinner'];
-    if (cw is String && cw.isNotEmpty && winner.isEmpty) winner = cw;
-    final cwt = m['chessWhite'];
-    if (cwt is String && cwt.isNotEmpty) white = cwt;
-    final cbt = m['chessBlack'];
-    if (cbt is String && cbt.isNotEmpty) black = cbt;
+    adoptWinner(m['chessWinner']);
+    final w = adoptNonEmpty(white, m['chessWhite']);
+    final b = adoptNonEmpty(black, m['chessBlack']);
+    if (w != white || b != black) seats = [w, b];
   }
 
   @override
@@ -91,14 +76,6 @@ class ChessLogic extends GameLogic {
         'chessWhite': white,
         'chessBlack': black,
       };
-
-  @override
-  void reset() {
-    moves.clear();
-    winner = '';
-    white = '';
-    black = '';
-  }
 
   // ------------------------------------------------------------------ moves
 
@@ -134,16 +111,12 @@ class ChessLogic extends GameLogic {
     // A capture is simply the king disappearing from the board.
     final after = ChessBoard.fromMoves(moves);
     if (before.contains('k') && !after.contains('k')) {
-      winner = 'white';
-      host.addScore(white, 1);
-      host.endRound();
+      finish('white', winnerId: white);
       host.showToast('White captures the king - white wins!');
       return;
     }
     if (before.contains('K') && !after.contains('K')) {
-      winner = 'black';
-      host.addScore(black, 1);
-      host.endRound();
+      finish('black', winnerId: black);
       host.showToast('Black captures the king - black wins!');
     }
   }

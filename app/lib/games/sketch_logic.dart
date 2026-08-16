@@ -4,6 +4,7 @@
 library;
 
 import 'game_logic.dart';
+import 'turn_game.dart';
 
 class SketchLogic extends GameLogic {
   SketchLogic(super.host);
@@ -63,12 +64,10 @@ class SketchLogic extends GameLogic {
 
   @override
   void adoptState(Map<String, dynamic> m) {
-    final w = m['sketchWord'];
-    if (w is String && w.isNotEmpty) word = w;
-    final d = m['sketchDrawer'];
-    if (d is String && d.isNotEmpty) drawer = d;
+    word = adoptNonEmpty(word, m['sketchWord']);
+    drawer = adoptNonEmpty(drawer, m['sketchDrawer']);
     // sticky within a round (start resets it)
-    solved = solved || m['sketchSolved'] == true;
+    solved = adoptStickyBool(solved, m['sketchSolved']);
   }
 
   @override

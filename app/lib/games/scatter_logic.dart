@@ -6,6 +6,7 @@ library;
 import 'package:flutter/services.dart';
 
 import 'game_logic.dart';
+import 'turn_game.dart';
 
 class ScatterLogic extends GameLogic {
   ScatterLogic(super.host);
@@ -107,8 +108,7 @@ class ScatterLogic extends GameLogic {
 
   @override
   void adoptState(Map<String, dynamic> m) {
-    final l = m['letter'];
-    if (l is String && l.isNotEmpty) letter = l;
+    letter = adoptNonEmpty(letter, m['letter']);
     final sg = m['sgWords'];
     if (sg is Map) {
       submissions.clear();

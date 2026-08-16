@@ -4,32 +4,29 @@ library;
 
 import '../go.dart';
 import 'game_logic.dart';
+import 'turn_game.dart';
 
-class GoLogic extends GameLogic {
+class GoLogic extends TurnGameLogic<String> {
   GoLogic(super.host);
 
   @override
   String get wireName => 'go';
 
-  final List<String> moves = [];
-  String winner = '';
-  String black = '';
-  String white = '';
-
-  @override
-  bool get needsTwoPlayers => true;
-
   @override
   String get startToast => 'Round ${host.round} - black moves first';
+
+  /// Black = seats[0] (moves first), white = seats[1].
+  String get black => seats.isEmpty ? '' : seats[0];
+  String get white => seats.length < 2 ? '' : seats[1];
+  bool get blackTurn => moves.length.isEven;
+  @override
+  String get turnId => blackTurn ? black : white;
 
   @override
   void populateStart(Map<String, dynamic> msg) {
     moves.clear();
     winner = '';
-    final seats = host.sortedPlayers;
-    black = seats[0].id;
-    white = seats.length > 1 ? seats[1].id : '';
-    host.deadline = DateTime.now().add(const Duration(hours: 1));
+    pinSeats(2);
     msg['black'] = black;
     msg['white'] = white;
   }
@@ -38,14 +35,11 @@ class GoLogic extends GameLogic {
   void applyStart(Map<String, dynamic> m) {
     moves.clear();
     winner = '';
-    black = (m['black'] as String?) ?? '';
-    white = (m['white'] as String?) ?? '';
+    seats = [
+      (m['black'] as String?) ?? '',
+      (m['white'] as String?) ?? '',
+    ]..removeWhere((s) => s.isEmpty);
   }
-
-  bool get blackTurn => moves.length.isEven; // black moves first
-  String get turnId => blackTurn ? black : white;
-  @override
-  bool get isMyTurn => host.meId == turnId;
 
   @override
   void onMessage(String type, Map<String, dynamic> m, String from) {
@@ -59,8 +53,8 @@ class GoLogic extends GameLogic {
       case 'goResign':
         if (host.phase != Phase.play) return;
         if (from != black && from != white) return;
-        winner = from == black ? 'white' : 'black';
-        _end();
+        finish(from == black ? 'white' : 'black',
+            winnerId: from == black ? white : black);
     }
   }
 
@@ -76,19 +70,12 @@ class GoLogic extends GameLogic {
   void adoptState(Map<String, dynamic> m) {
     final gm = m['goMoves'];
     if (gm is List) {
-      final incoming = [for (final v in gm) if (v is String) v];
-      if (incoming.length >= moves.length) {
-        moves
-          ..clear()
-          ..addAll(incoming);
-      }
+      adoptLonger([for (final v in gm) if (v is String) v]);
     }
-    final gw = m['goWinner'];
-    if (gw is String && gw.isNotEmpty && winner.isEmpty) winner = gw;
-    final gb = m['goBlack'];
-    if (gb is String && gb.isNotEmpty) black = gb;
-    final gwt = m['goWhite'];
-    if (gwt is String && gwt.isNotEmpty) white = gwt;
+    adoptWinner(m['goWinner']);
+    final b = adoptNonEmpty(black, m['goBlack']);
+    final w = adoptNonEmpty(white, m['goWhite']);
+    if (b != black || w != white) seats = [b, w];
   }
 
   @override
@@ -98,14 +85,6 @@ class GoLogic extends GameLogic {
         'goBlack': black,
         'goWhite': white,
       };
-
-  @override
-  void reset() {
-    moves.clear();
-    winner = '';
-    black = '';
-    white = '';
-  }
 
   // ------------------------------------------------------------------ moves
 
@@ -137,9 +116,10 @@ class GoLogic extends GameLogic {
   void resign() {
     if (host.phase != Phase.play) return;
     if (host.meId != black && host.meId != white) return;
-    winner = host.meId == black ? 'white' : 'black';
+    final resignedBlack = host.meId == black;
+    finish(resignedBlack ? 'white' : 'black',
+        winnerId: resignedBlack ? white : black);
     host.send({'t': 'goResign', 'node': host.meId});
-    _end();
     host.notifyListeners();
   }
 
@@ -166,21 +146,15 @@ class GoLogic extends GameLogic {
         moves[moves.length - 2] == 'pass') {
       final r = GoGame.replay(moves);
       final s = GoGame.score(r.board);
-      winner = s.black == s.white
+      final label = s.black == s.white
           ? 'draw'
           : (s.black > s.white ? 'black' : 'white');
-      _end();
+      finish(label,
+          winnerId: label == 'black'
+              ? black
+              : label == 'white'
+                  ? white
+                  : null);
     }
-  }
-
-  void _end() {
-    final winnerId = switch (winner) {
-      'black' => black,
-      'white' => white,
-      _ => '',
-    };
-    host.addScore(winnerId, 1);
-    host.endRound();
-    host.showToast('Game over!');
   }
 }

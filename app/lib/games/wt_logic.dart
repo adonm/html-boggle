@@ -5,31 +5,29 @@ library;
 
 import '../wordtiles.dart';
 import 'game_logic.dart';
+import 'turn_game.dart';
 
-class WtLogic extends GameLogic {
+class WtLogic extends TurnGameLogic<dynamic> {
   WtLogic(super.host);
+
+  List<String> bag = [];
 
   @override
   String get wireName => 'wordtiles';
-
-  final List<dynamic> moves = [];
-  List<String> bag = [];
-  List<String> seats = [];
-  String winner = '';
-
-  @override
-  bool get needsTwoPlayers => true;
 
   @override
   String get startToast => 'Round ${host.round} - first play covers the star';
 
   @override
+  String get turnId =>
+      seats.isEmpty ? '' : seats[moves.length % seats.length];
+
+  @override
   void populateStart(Map<String, dynamic> msg) {
     moves.clear();
     winner = '';
-    seats = [for (final p in host.sortedPlayers) p.id];
+    seatAll();
     bag = WtGame.shuffledBag();
-    host.deadline = DateTime.now().add(const Duration(hours: 1));
     msg['bag'] = bag.join('');
     msg['seats'] = seats;
   }
@@ -45,11 +43,6 @@ class WtLogic extends GameLogic {
       seats = [for (final seat in s) if (seat is String) seat];
     }
   }
-
-  String get turnId =>
-      seats.isEmpty ? '' : seats[moves.length % seats.length];
-  @override
-  bool get isMyTurn => host.meId == turnId;
 
   @override
   void onMessage(String type, Map<String, dynamic> m, String from) {
@@ -74,19 +67,13 @@ class WtLogic extends GameLogic {
   @override
   void adoptState(Map<String, dynamic> m) {
     final wm = m['wtMoves'];
-    if (wm is List && wm.length >= moves.length) {
-      moves
-        ..clear()
-        ..addAll(wm);
-    }
+    if (wm is List) adoptLonger(wm);
     final wb = m['wtBag'];
     if (wb is String && wb.isNotEmpty) bag = wb.split('');
-    final wseats = m['wtSeats'];
-    if (wseats is List && wseats.isNotEmpty) {
-      seats = [for (final s in wseats) if (s is String) s];
-    }
-    final ww = m['wtWinner'];
-    if (ww is String && ww.isNotEmpty && winner.isEmpty) winner = ww;
+    adoptSeats(m['wtSeats'] is List
+        ? [for (final s in m['wtSeats'] as List) if (s is String) s]
+        : null);
+    adoptWinner(m['wtWinner']);
   }
 
   @override
@@ -103,10 +90,8 @@ class WtLogic extends GameLogic {
 
   @override
   void reset() {
-    moves.clear();
+    super.reset();
     bag = [];
-    seats = [];
-    winner = '';
   }
 
   // ------------------------------------------------------------- derivation
@@ -291,9 +276,7 @@ class WtLogic extends GameLogic {
         tie = true;
       }
     }
-    winner = tie ? 'draw' : seats[bestSeat];
-    host.addScore(winner, 1);
-    host.endRound();
-    host.showToast('Game over!');
+    final winnerId = tie ? 'draw' : seats[bestSeat];
+    finish(winnerId, winnerId: winnerId == 'draw' ? null : winnerId);
   }
 }
