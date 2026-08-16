@@ -35,10 +35,10 @@ player (join a room alone) so you can test each one without friends:
   rendered with perfect-freehand smoothing and pressure simulation; brush sizes + colors)
   while the others type guesses; the exact answer scores for both the guesser and the drawer.
   The drawer rotates each round.
-- **Chess** — full rules via a pure-Dart engine (castling, en passant, promotion choice,
-  checkmate, stalemate, threefold repetition) plus a "party" toggle: capture the king to
-  win. Two players; everyone else watches as a spectator. Moves are a replicated log, so
-  everyone sees the same board. Solo practice plays both sides.
+- **Chess** — full rules via a pure-Dart engine: castling, en passant, promotion with a
+  piece picker, checkmate, stalemate, threefold repetition. Two players; everyone else
+  watches as a spectator. Moves are a replicated log, so everyone sees the same board.
+  Solo practice plays both sides.
 - **Go (9×9)** — classic Go: place stones, surround groups to capture, simple ko. Two
   consecutive passes end the game; area scoring (stones + surrounded territory) decides it.
   Two players, others spectate.

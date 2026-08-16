@@ -48,26 +48,6 @@ class GameModePicker extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         _ModeGuide(mode: game.mode),
-        if (game.mode == GameMode.chess) ...[
-          const SizedBox(height: 8),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(
-                value: 'standard',
-                label: Text('Standard'),
-                icon: Icon(Icons.menu_book),
-              ),
-              ButtonSegment(
-                value: 'capture',
-                label: Text('Party: capture king'),
-                icon: Icon(Icons.celebration),
-              ),
-            ],
-            selected: {game.chess?.rules ?? 'standard'},
-            showSelectedIcon: false,
-            onSelectionChanged: (sel) => game.chess?.setRules(sel.first),
-          ),
-        ],
       ],
     );
   }

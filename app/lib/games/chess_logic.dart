@@ -1,23 +1,17 @@
-/// Chess: two rulesets share one replicated move log.
-///   - 'standard' (default): validated by the pure-Dart `chess` engine -
-///     real legal moves, castling, en passant, promotion, checkmate,
-///     stalemate, insufficient material, threefold repetition.
-///   - 'capture' (party): our simplified rules - capture the king to win.
-/// Seats are pinned at round start so a late spectator can never steal
-/// one; every client validates moves identically, so the logs converge.
+/// Chess: full rules via the pure-Dart `chess` engine - castling, en
+/// passant, promotion, checkmate, stalemate, insufficient material,
+/// threefold repetition. Seats are pinned at round start so a late
+/// spectator can never steal one; every client validates moves against
+/// the engine identically, so the replicated logs converge.
 library;
 
 import 'package:chess/chess.dart' as cc;
 
-import '../chess.dart';
 import 'game_logic.dart';
 import 'turn_game.dart';
 
 class ChessLogic extends TurnGameLogic<String> {
   ChessLogic(super.host);
-
-  /// 'standard' (engine rules) or 'capture' (party: king capture wins).
-  String rules = 'standard';
 
   @override
   String get wireName => 'chess';
@@ -32,13 +26,6 @@ class ChessLogic extends TurnGameLogic<String> {
   @override
   String get turnId => whiteTurn ? white : black;
 
-  void setRules(String r) {
-    if (r != rules && (r == 'standard' || r == 'capture')) {
-      rules = r;
-      host.notifyListeners();
-    }
-  }
-
   @override
   void populateStart(Map<String, dynamic> msg) {
     moves.clear();
@@ -48,7 +35,6 @@ class ChessLogic extends TurnGameLogic<String> {
     if (host.players.length < 2) seats = [host.meId, host.meId];
     msg['white'] = white;
     msg['black'] = black;
-    msg['rules'] = rules;
   }
 
   @override
@@ -59,8 +45,6 @@ class ChessLogic extends TurnGameLogic<String> {
       (m['white'] as String?) ?? '',
       (m['black'] as String?) ?? '',
     ]..removeWhere((s) => s.isEmpty);
-    final r = m['rules'];
-    if (r is String && (r == 'standard' || r == 'capture')) rules = r;
   }
 
   @override
@@ -76,7 +60,6 @@ class ChessLogic extends TurnGameLogic<String> {
         'chessWinner': winner,
         'chessWhite': white,
         'chessBlack': black,
-        'chessRules': rules,
       };
 
   @override
@@ -89,8 +72,6 @@ class ChessLogic extends TurnGameLogic<String> {
     final w = adoptNonEmpty(white, m['chessWhite']);
     final b = adoptNonEmpty(black, m['chessBlack']);
     if (w != white || b != black) seats = [w, b];
-    final r = m['chessRules'];
-    if (r is String && (r == 'standard' || r == 'capture')) rules = r;
   }
 
   @override
@@ -99,12 +80,11 @@ class ChessLogic extends TurnGameLogic<String> {
         'chessWinner': winner,
         'chessWhite': white,
         'chessBlack': black,
-        'chessRules': rules,
       };
 
   // -------------------------------------------------------------- engine
 
-  /// Replay the log through the rules engine (standard mode).
+  /// Replay the log through the rules engine.
   cc.Chess _engine() {
     final g = cc.Chess();
     for (final mv in moves) {
@@ -152,10 +132,8 @@ class ChessLogic extends TurnGameLogic<String> {
     };
   }
 
-  /// Board for rendering: 64 chars (a8=0), engine state in standard mode,
-  /// replayed capture board in party mode.
+  /// Board for rendering: 64 chars (a8=0) from the engine state.
   List<String> get displayBoard {
-    if (rules == 'capture') return ChessBoard.fromMoves(moves);
     final g = _engine();
     return [
       for (var i = 0; i < 64; i++)
@@ -163,18 +141,11 @@ class ChessLogic extends TurnGameLogic<String> {
     ];
   }
 
-  /// True when the side to move is in check (standard mode).
-  bool get isCheck => rules == 'standard' && _engine().in_check;
+  /// True when the side to move is in check.
+  bool get isCheck => _engine().in_check;
 
   /// Legal target square names for the piece on [from] ("e2").
   Set<String> legalTargetsFrom(String from) {
-    if (rules == 'capture') {
-      return {
-        for (final i in ChessBoard.targets(
-            ChessBoard.fromMoves(moves), ChessBoard.sq(from)))
-          ChessBoard.sqName(i),
-      };
-    }
     final sq = cc.Chess.SQUARES[from];
     if (sq == null) return const {};
     return {
@@ -183,9 +154,8 @@ class ChessLogic extends TurnGameLogic<String> {
     };
   }
 
-  /// Promotion piece for a pending from->to move, or null (standard mode).
+  /// Promotion piece for a pending from->to move, or null.
   String? promotionFor(String from, String to) {
-    if (rules != 'standard') return null;
     final f = cc.Chess.SQUARES[from];
     final t = cc.Chess.SQUARES[to];
     if (f == null || t == null) return null;
@@ -234,14 +204,8 @@ class ChessLogic extends TurnGameLogic<String> {
     host.notifyListeners();
   }
 
-  /// Shared validation: engine legality (standard) or our capture rules.
+  /// Engine legality: the move must be in the generated legal move list.
   bool _validate(String from, String to, String? promo) {
-    if (rules == 'capture') {
-      final f = ChessBoard.sq(from);
-      final t = ChessBoard.sq(to);
-      if (f < 0 || t < 0 || f == t) return false;
-      return ChessBoard.targets(ChessBoard.fromMoves(moves), f).contains(t);
-    }
     final f = cc.Chess.SQUARES[from];
     final t = cc.Chess.SQUARES[to];
     if (f == null || t == null) return false;
@@ -253,20 +217,6 @@ class ChessLogic extends TurnGameLogic<String> {
   }
 
   void _checkEnd() {
-    if (rules == 'capture') {
-      final before = ChessBoard.fromMoves(moves.sublist(0, moves.length - 1));
-      final after = ChessBoard.fromMoves(moves);
-      if (before.contains('k') && !after.contains('k')) {
-        finish('white', winnerId: white);
-        host.showToast('White captures the king - white wins!');
-        return;
-      }
-      if (before.contains('K') && !after.contains('K')) {
-        finish('black', winnerId: black);
-        host.showToast('Black captures the king - black wins!');
-      }
-      return;
-    }
     final g = _engine();
     if (g.in_checkmate) {
       final moverIsWhite = g.turn == cc.Color.BLACK;

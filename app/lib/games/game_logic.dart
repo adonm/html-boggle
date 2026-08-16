@@ -46,10 +46,9 @@ extension GameModeInfo on GameMode {
               'the exact answer to score (drawer and guesser both get a point). The '
               'drawer rotates each round.',
         GameMode.chess =>
-          'Classic chess with a party twist: capture the king to win - no '
-              'check/checkmate bookkeeping, no castling. Pawns auto-promote to '
-              'queens. Two players; everyone else spectates. Solo practice plays '
-              'both sides.',
+          'Full chess rules: castling, en passant, promotion with a piece '
+              'picker, checkmate, stalemate, threefold repetition. Two players; '
+              'everyone else spectates. Solo practice plays both sides.',
         GameMode.go =>
           'Go on a 9×9 board: place stones, capture groups by surrounding them, '
               'simple ko rule. Two consecutive passes end the game; area scoring '
@@ -73,8 +72,8 @@ extension GameModeInfo on GameMode {
           'Drawer: draw with your finger/mouse, clear the canvas if you need a '
               'restart. Guessers: type guesses - exact match wins the round.',
         GameMode.chess =>
-          'Tap a piece, then a highlighted square to move. Capturing the enemy '
-              'king ends the game immediately.',
+          'Tap a piece, then a highlighted square to move. Only legal moves are '
+              'highlighted; checkmate (not a king capture) ends the game.',
         GameMode.go =>
           'Tap an empty intersection to place a stone. Surround enemy groups to '
               'capture them. PASS when you have nothing useful - two passes in a '

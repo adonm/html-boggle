@@ -1,7 +1,7 @@
 /**
  * e2e-solo.mjs - single-player mode test:
- *   one browser joins a room alone and plays Capture Chess against itself
- *   (solo seats both sides) through the fool's-mate capture, then Go with
+ *   one browser joins a room alone and plays Chess against itself (solo
+ *   seats both sides) through the scholar's mate checkmate, then Go with
  *   two passes. No second player needed - every game must be startable
  *   and playable solo for testing.
  *
@@ -112,7 +112,6 @@ try {
 
   // ---- solo chess: one player on both sides -------------------------------
   await page.evaluate(() => window.__boggleDebugSetMode("chess"));
-  await page.evaluate(() => window.__boggleDebugChessRules("capture"));
   await page.evaluate(() => window.__boggleDebugReady(""));
   await waitFor(async () => ((await state(page))?.allReady ? true : null), 15_000, "ready");
   await page.evaluate(() => window.__boggleDebugStart(""));
@@ -122,29 +121,7 @@ try {
   console.log("  solo chess seats:", JSON.stringify({ white: a.chessWhite, black: a.chessBlack, me: a.me }));
   const okSeats = a.chessWhite === a.me && a.chessBlack === a.me;
 
-  // fool's mate: the solo player moves both colors
-  const moves = [["f2", "f3"], ["e7", "e5"], ["g2", "g4"], ["d8", "h4"], ["a2", "a3"], ["h4", "e1"]];
-  for (const [from, to] of moves) {
-    await page.evaluate(
-      (args) => window.__boggleDebugChessMove(args[0], args[1]),
-      [from, to],
-    );
-    await waitFor(async () =>
-      ((await state(page))?.chessMoves.endsWith(from + to) ? true : null),
-    15_000, `chess move ${from}${to}`);
-  }
-  await waitFor(async () => ((await state(page))?.phase === "results" ? true : null), 20_000, "chess results");
-  a = await state(page);
-  console.log("  solo chess:", JSON.stringify({ winner: a.chessWinner, moves: a.chessMoves }));
-  const okChess = okSeats && a.chessWinner === "black" &&
-    a.chessMoves === "f2f3,e7e5,g2g4,d8h4,a2a3,h4e1";
-
-  // ---- solo standard chess: checkmate via the engine ----------------------
-  await page.evaluate(() => window.__boggleDebugChessRules("standard"));
-  await page.evaluate(() => window.__boggleDebugReady(""));
-  await waitFor(async () => ((await state(page))?.allReady ? true : null), 15_000, "std ready");
-  await page.evaluate(() => window.__boggleDebugStart(""));
-  await waitFor(async () => ((await state(page))?.phase === "play" ? true : null), 20_000, "std start");
+  // scholar's mate: the solo player moves both colors to a checkmate
   const stdMoves = [["e2", "e4"], ["e7", "e5"], ["f1", "c4"], ["b8", "c6"], ["d1", "h5"], ["g8", "f6"], ["h5", "f7"]];
   for (const [from, to] of stdMoves) {
     await page.evaluate(
@@ -157,8 +134,8 @@ try {
   }
   await waitFor(async () => ((await state(page))?.phase === "results" ? true : null), 20_000, "std results");
   a = await state(page);
-  console.log("  solo std chess:", JSON.stringify({ winner: a.chessWinner, moves: a.chessMoves, rules: a.chessRules }));
-  const okStd = a.chessRules === "standard" && a.chessWinner === "white" &&
+  console.log("  solo chess:", JSON.stringify({ winner: a.chessWinner, moves: a.chessMoves }));
+  const okChess = okSeats && a.chessWinner === "white" &&
     a.chessMoves === "e2e4,e7e5,f1c4,b8c6,d1h5,g8f6,h5f7";
 
   // ---- solo go: two passes end the game -----------------------------------
@@ -178,8 +155,8 @@ try {
   console.log("  solo go:", JSON.stringify({ winner: a.goWinner, moves: a.goMoves }));
   const okGo = a.goWinner === "black" && a.goMoves === "a1,pass,pass";
 
-  const ok = okChess && okStd && okGo;
-  console.log(ok ? "PASS: solo chess (party + standard) + go rounds ✅" : "FAIL");
+  const ok = okChess && okGo;
+  console.log(ok ? "PASS: solo chess checkmate + go rounds ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {
   console.error(err.message ?? err);

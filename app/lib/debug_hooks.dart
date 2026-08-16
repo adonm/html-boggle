@@ -68,12 +68,6 @@ void installDebugHooks(Game game) {
     }).toJS,
   );
   _window.setProperty(
-    '__boggleDebugChessRules'.toJS,
-    ((JSString rules) {
-      game.chess?.setRules(rules.toDart);
-    }).toJS,
-  );
-  _window.setProperty(
     '__boggleDebugGoMove'.toJS,
     ((JSString coord) {
       game.go?.tryMove(coord.toDart);

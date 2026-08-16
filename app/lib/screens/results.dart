@@ -311,18 +311,13 @@ class ChessResultsBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final winner = game.chess?.winner ?? '';
-    final standard = game.chess?.rules == 'standard';
     final text = winner.isEmpty
         ? 'GAME ABANDONED'
         : winner == 'draw'
             ? 'DRAW'
             : winner == 'white'
-                ? standard
-                    ? 'CHECKMATE - WHITE WINS!'
-                    : 'WHITE WINS - KING CAPTURED!'
-                : standard
-                    ? 'CHECKMATE - BLACK WINS!'
-                    : 'BLACK WINS - KING CAPTURED!';
+                ? 'CHECKMATE - WHITE WINS!'
+                : 'CHECKMATE - BLACK WINS!';
     return Text(
       text,
       textAlign: TextAlign.center,

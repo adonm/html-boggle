@@ -120,8 +120,6 @@ try {
   }, 90_000, "players to connect");
 
   await pageA.evaluate(() => window.__boggleDebugSetMode("chess"));
-  // the starter pins the rules for the round (carried in the start msg)
-  await pageA.evaluate(() => window.__boggleDebugChessRules("capture"));
   // ready up (retry: a ready toggle can race the first gossip connect)
   for (let attempt = 0; attempt < 4; attempt++) {
     if (!(await state(pageA))?.myReady) {
@@ -160,15 +158,15 @@ try {
     blackPage === pageA ? "Alice" : "Bob",
   );
 
-  // White's first move through the real UI: tap f2, then f3.
-  await whitePage.getByText(/chess square f2/).click();
+  // White's first move through the real UI: tap e2, then e4.
+  await whitePage.getByText(/chess square e2/).click();
   await sleep(300);
-  await whitePage.getByText(/chess square f3/).click();
+  await whitePage.getByText(/chess square e4/).click();
   await waitFor(async () =>
-    ((await state(blackPage))?.chessMoves.includes("f2f3") ? true : null),
+    ((await state(blackPage))?.chessMoves.includes("e2e4") ? true : null),
   20_000, "white's UI move to reach black");
 
-  // Fool's mate, capture-the-king style: ...e5 g4 Qh4 a3 Qxe1.
+  // Scholar's mate: 1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# (checkmate).
   // Each move must arrive at the opponent before their reply, or the
   // turn check on the sender's own (lagging) log rejects it.
   async function move(page, from, to, otherPage) {
@@ -184,10 +182,11 @@ try {
     20_000, `move ${from}${to} applied locally`);
   }
   await move(blackPage, "e7", "e5", whitePage);
-  await move(whitePage, "g2", "g4", blackPage);
-  await move(blackPage, "d8", "h4", whitePage);
-  await move(whitePage, "a2", "a3", blackPage);
-  await move(blackPage, "h4", "e1", whitePage);
+  await move(whitePage, "f1", "c4", blackPage);
+  await move(blackPage, "b8", "c6", whitePage);
+  await move(whitePage, "d1", "h5", blackPage);
+  await move(blackPage, "g8", "f6", whitePage);
+  await move(whitePage, "h5", "f7", blackPage);
 
   // Spectator joins mid-game and must see the same board and moves.
   browserC = await chromium.launch({ executablePath: SHELL, args: CHROMIUM_ARGS });
@@ -201,7 +200,7 @@ try {
     const x = await state(pageA);
     const y = await state(pageB);
     return x.phase === "results" && y.phase === "results" ? { x, y } : null;
-  }, 30_000, "king capture to end the game");
+  }, 30_000, "checkmate to end the game");
 
   // poll until everyone (including the spectator) agrees
   const settle = await waitFor(async () => {
@@ -211,10 +210,10 @@ try {
     const blackIdx = x.pids.indexOf(blackId);
     const whiteIdx = x.pids.indexOf(whiteId);
     const ok =
-      x.chessWinner === "black" && y.chessWinner === "black" && z.chessWinner === "black" &&
-      x.chessMoves === "f2f3,e7e5,g2g4,d8h4,a2a3,h4e1" &&
+      x.chessWinner === "white" && y.chessWinner === "white" && z.chessWinner === "white" &&
+      x.chessMoves === "e2e4,e7e5,f1c4,b8c6,d1h5,g8f6,h5f7" &&
       x.chessMoves === y.chessMoves && y.chessMoves === z.chessMoves &&
-      x.plist[blackIdx]?.score === 1 && x.plist[whiteIdx]?.score === 0 &&
+      x.plist[whiteIdx]?.score === 1 && x.plist[blackIdx]?.score === 0 &&
       JSON.stringify(x.plist) === JSON.stringify(y.plist) &&
       JSON.stringify(y.plist) === JSON.stringify(z.plist) &&
       z.players === 3 && z.phase === "results"; // spectator sees it all
@@ -225,7 +224,7 @@ try {
   console.log("A:", JSON.stringify({ winner: fa.chessWinner, synced: fa.synced, sent: fa.stateSent, recv: fa.stateReceived }));
   console.log("B:", JSON.stringify({ winner: fb.chessWinner, synced: fb.synced, sent: fb.stateSent, recv: fb.stateReceived }));
   console.log("C:", JSON.stringify({ winner: fc.chessWinner, moves: fc.chessMoves, phase: fc.phase, synced: fc.synced, sent: fc.stateSent, recv: fc.stateReceived, players: fc.players }));
-  console.log(ok ? "PASS: chess capture-the-king game with a mid-game spectator ✅" : "FAIL");
+  console.log(ok ? "PASS: chess scholar's-mate checkmate with a mid-game spectator ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {
   console.error(err.message ?? err);
