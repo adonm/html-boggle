@@ -48,12 +48,13 @@ extension GameModeInfo on GameMode {
         GameMode.chess =>
           'Classic chess with a party twist: capture the king to win - no '
               'check/checkmate bookkeeping, no castling. Pawns auto-promote to '
-              'queens. Two players; everyone else spectates.',
+              'queens. Two players; everyone else spectates. Solo practice plays '
+              'both sides.',
         GameMode.go =>
           'Go on a 9×9 board: place stones, capture groups by surrounding them, '
               'simple ko rule. Two consecutive passes end the game; area scoring '
               '(stones + surrounded territory) decides the winner. Two players, '
-              'others spectate.',
+              'others spectate. Solo practice plays both sides.',
         GameMode.wordtiles =>
           'Scrabble-style crossword: build words from your 7-tile rack onto the '
               'board, connecting to existing letters. Every formed word must be '
@@ -147,7 +148,6 @@ abstract class GameLogic {
   final GameHost host;
 
   String get wireName;
-  bool get needsTwoPlayers => false;
   bool get isMyTurn => false;
   /// Toast shown when a round starts ("Round N - ...").
   String get startToast => 'Round ${host.round} - find words!';

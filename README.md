@@ -23,20 +23,22 @@ but public pkarr relays in between.
 
 The room is a shell for pick-and-play party games — the round starter picks one; the choice
 rides along in the `start` message so everyone lands in the same game. Each game has a short
-description + how-to guide right in the room's picker:
+description + how-to guide right in the room's picker. Every game also works with a single
+player (join a room alone) so you can test each one without friends:
 
 - **Boggle** — the original: find words in the 4×4 board (3-minute rounds, classic scoring,
   fresh leader-dealt board every round).
 - **Scattergories** — the round starter serves a random letter; everyone submits dictionary
   words starting with it. Duplicates cancel at the reveal (classic rule); scoring is
   deterministic on every client.
-- **SketchIt** — one player draws a secret word on a live canvas (strokes stream to everyone)
-  while the others type guesses; the exact answer scores for both the guesser and the drawer.
-  The drawer rotates each round.
+- **SketchIt** — one player draws a secret word on a live canvas (strokes stream to everyone,
+  rendered with perfect-freehand smoothing and pressure simulation) while the others type
+  guesses; the exact answer scores for both the guesser and the drawer. The drawer rotates
+  each round.
 - **Chess** — classic chess with a party twist: capture the king to win (no
   check/checkmate bookkeeping, no castling, pawns auto-promote to queens). Two players;
   everyone else watches as a spectator. Moves are a replicated log, so everyone sees the
-  same board.
+  same board. Solo practice plays both sides.
 - **Go (9×9)** — classic Go: place stones, surround groups to capture, simple ko. Two
   consecutive passes end the game; area scoring (stones + surrounded territory) decides it.
   Two players, others spectate.
@@ -104,6 +106,7 @@ mise run test-chess    # e2e: capture chess with a mid-game spectator
 mise run test-resume   # e2e: reload auto-rejoins the room; leave clears the cache
 mise run test-go       # e2e: go with a capture and pass-pass end
 mise run test-wt       # e2e: word tiles play through the star
+mise run test-solo     # e2e: single-player chess + go
 ```
 
 Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — miniserve

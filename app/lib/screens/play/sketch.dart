@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:perfect_freehand/perfect_freehand.dart';
 
 import '../../game.dart';
 
@@ -61,8 +62,8 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
     _buf
       ..clear()
       ..add(Offset(
-        p.dx / size.width,
-        p.dy / size.height,
+        (p.dx / size.width).clamp(0.0, 1.0),
+        (p.dy / size.height).clamp(0.0, 1.0),
       ));
     _sendBuf(_color, _width);
     _flush = Timer.periodic(const Duration(milliseconds: 90), (_) {
@@ -72,10 +73,13 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
 
   void _extendStroke(Offset p, Size size) {
     if (!_isDrawer || _strokeId == null) return;
-    _buf.add(Offset(
+    final np = Offset(
       (p.dx / size.width).clamp(0.0, 1.0),
       (p.dy / size.height).clamp(0.0, 1.0),
-    ));
+    );
+    // skip near-duplicate points: they feed noise to the stroke builder
+    if (_buf.isNotEmpty && (np - _buf.last).distance < 0.004) return;
+    _buf.add(np);
   }
 
   void _endStroke() {
@@ -87,8 +91,9 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
     _buf.clear();
   }
 
-  double _color = 0xFFFF9800;
-  double _width = 0.004;
+  double _color = 0xFF1D1D1D;
+  double _width = 0.008;
+  static const List<double> _widths = [0.004, 0.008, 0.015];
 
   @override
   Widget build(BuildContext context) {
@@ -126,13 +131,14 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                       return Semantics(
                         label: 'drawing canvas',
                         child: GestureDetector(
-                          onPanStart: _isDrawer
+                          onPanDown: _isDrawer
                               ? (d) => _startStroke(d.localPosition, size)
                               : null,
                           onPanUpdate: _isDrawer
                               ? (d) => _extendStroke(d.localPosition, size)
                               : null,
                           onPanEnd: _isDrawer ? (_) => _endStroke() : null,
+                          onPanCancel: _isDrawer ? _endStroke : null,
                           child: CustomPaint(
                             size: size,
                             painter: SketchPainter(strokes: g.sketch!.strokes),
@@ -154,7 +160,7 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     for (final c in const [
-                      0xFFFF9800, 0xFFF44336, 0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0, 0xFF000000,
+                      0xFF1D1D1D, 0xFFF44336, 0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0, 0xFFFF9800,
                     ])
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -171,6 +177,36 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                                     ? theme.colorScheme.primary
                                     : Colors.transparent,
                                 width: 3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    for (final w in _widths)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: InkWell(
+                          onTap: () => setState(() => _width = w),
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _width == w
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.outline,
+                                width: _width == w ? 3 : 1,
+                              ),
+                            ),
+                            child: Container(
+                              width: w * 700,
+                              height: w * 700,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.onSurface,
+                                shape: BoxShape.circle,
                               ),
                             ),
                           ),
@@ -219,44 +255,81 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
   }
 }
 
-/// Paints SketchIt strokes (normalized 0..1 coordinates).
+/// Paints SketchIt strokes (normalized 0..1 coordinates) with
+/// perfect_freehand: smooth, tapered, pressure-simulated strokes.
 class SketchPainter extends CustomPainter {
   const SketchPainter({required this.strokes});
 
   final List<Map<String, dynamic>> strokes;
 
+  static final Paint _fill = Paint()..style = PaintingStyle.fill;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final white = Paint()..color = Colors.white;
-    canvas.drawRect(Offset.zero & size, white);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = Colors.white,
+    );
     for (final s in strokes) {
       final pts = s['pts'];
       if (pts is! List || pts.isEmpty) continue;
-      final color = s['color'];
-      final width = s['width'];
-      final paint = Paint()
-        ..color = Color((color is num ? color.toInt() : 0xFF000000))
-        ..strokeWidth = ((width is num ? width : 0.004) * size.width).clamp(1.5, 20)
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke;
-      final path = Path();
-      for (var i = 0; i < pts.length / 2; i++) {
-        final x = (pts[i] as num).toDouble() * size.width;
-        final y = (pts[i + pts.length ~/ 2] as num).toDouble() * size.height;
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
+      final n = pts.length ~/ 2;
+      final color = Color(
+          (s['color'] is num ? (s['color'] as num).toInt() : 0xFF1D1D1D));
+      final strokeWidth =
+          ((s['width'] is num ? s['width'] as num : 0.008) * size.width)
+              .clamp(1.0, 24.0);
+      if (n == 1) {
+        // a single tap: a dot
+        _fill.color = color;
+        canvas.drawCircle(
+          Offset(
+            (pts[0] as num).toDouble() * size.width,
+            (pts[1] as num).toDouble() * size.height,
+          ),
+          strokeWidth / 2,
+          _fill,
+        );
+        continue;
       }
-      canvas.drawPath(path, paint);
+      final points = <PointVector>[
+        for (var i = 0; i < n; i++)
+          PointVector(
+            (pts[i] as num).toDouble() * size.width,
+            (pts[i + n] as num).toDouble() * size.height,
+          ),
+      ];
+      final outline = getStroke(
+        points,
+        options: StrokeOptions(
+          size: strokeWidth,
+          thinning: 0.6,
+          smoothing: 0.5,
+          streamline: 0.5,
+          simulatePressure: true,
+          start: StrokeEndOptions.start(cap: true),
+          end: StrokeEndOptions.end(cap: true),
+          isComplete: true,
+        ),
+      );
+      if (outline.isEmpty) continue;
+      final path = Path()..moveTo(outline.first.dx, outline.first.dy);
+      for (final p in outline.skip(1)) {
+        path.lineTo(p.dx, p.dy);
+      }
+      path.close();
+      _fill.color = color;
+      canvas.drawPath(path, _fill);
     }
   }
 
+  /// Repaint whenever any stroke's point count changes - deltas mutate the
+  /// last stroke's list in place, so map identity alone would miss them.
+  static int _rev(List<Map<String, dynamic>> s) =>
+      s.fold(0, (a, x) => a + ((x['pts'] as List?)?.length ?? 0));
+
   @override
   bool shouldRepaint(SketchPainter oldDelegate) =>
-      oldDelegate.strokes.length != strokes.length ||
-      (strokes.isNotEmpty && oldDelegate.strokes.last != strokes.last);
+      _rev(strokes) != _rev(oldDelegate.strokes);
 }
 

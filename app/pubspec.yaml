@@ -13,6 +13,7 @@ dependencies:
   yaru: ^10.2.0
   flutter_animate: ^4.5.2
   confetti: ^0.8.0
+  perfect_freehand: ^2.5.2+1
 
 dev_dependencies:
   flutter_test:

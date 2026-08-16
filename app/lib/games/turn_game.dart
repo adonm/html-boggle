@@ -25,9 +25,6 @@ abstract class TurnGameLogic<T> extends GameLogic {
   String winner = '';
   List<String> seats = [];
 
-  @override
-  bool get needsTwoPlayers => true;
-
   /// Whose turn it is, derived from the log.
   String get turnId;
 

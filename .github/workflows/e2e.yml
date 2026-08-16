@@ -62,3 +62,6 @@ jobs:
 
       - name: "E2E: word tiles play through the star"
         run: mise run test-wt
+
+      - name: "E2E: single-player chess + go"
+        run: mise run test-solo

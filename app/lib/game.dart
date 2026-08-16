@@ -291,10 +291,6 @@ class Game extends ChangeNotifier implements GameHost {
     // Whoever starts the round serves authoritative state from here on.
     _syncedFromOthers = true;
     _ensureLogic();
-    if (_logic.needsTwoPlayers && players.length < 2) {
-      showToast('${mode.title} needs 2 players (others can spectate)');
-      return;
-    }
     deadline = DateTime.now().add(const Duration(milliseconds: roundMs));
     round++;
     final msg = {

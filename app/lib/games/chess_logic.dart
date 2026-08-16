@@ -28,6 +28,8 @@ class ChessLogic extends TurnGameLogic<String> {
     moves.clear();
     winner = '';
     pinSeats(2);
+    // solo practice: one player sits both sides
+    if (host.players.length < 2) seats = [host.meId, host.meId];
     msg['white'] = white;
     msg['black'] = black;
   }
