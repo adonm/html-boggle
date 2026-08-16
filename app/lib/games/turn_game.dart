@@ -50,7 +50,6 @@ abstract class TurnGameLogic<T> extends GameLogic {
     winner = winnerLabel;
     if (winnerId != null && winnerId.isNotEmpty) {
       host.addScore(winnerId, 1);
-      host.sfx('win');
     }
     host.endRound();
     host.showToast('Game over!');

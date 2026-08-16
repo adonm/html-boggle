@@ -16,6 +16,9 @@ class SketchLogic extends GameLogic {
   String drawer = '';
   bool solved = false;
   final List<Map<String, dynamic>> strokes = [];
+  /// Bumped on every stroke mutation; the painter compares this (the
+  /// stroke list is mutated in place, so identity alone never changes).
+  int rev = 0;
 
   @override
   String get startToast => 'Round ${host.round} - start drawing!';
@@ -26,6 +29,7 @@ class SketchLogic extends GameLogic {
     drawer = host.sortedPlayers[(host.round - 1) % host.players.length].id;
     strokes.clear();
     solved = false;
+    rev++;
     host.deadline =
         DateTime.now().add(const Duration(seconds: 90));
     msg['word'] = word;
@@ -38,6 +42,7 @@ class SketchLogic extends GameLogic {
     drawer = (m['drawer'] as String?) ?? '';
     strokes.clear();
     solved = false;
+    rev++;
   }
 
   @override
@@ -84,6 +89,7 @@ class SketchLogic extends GameLogic {
     drawer = '';
     solved = false;
     strokes.clear();
+    rev++;
   }
 
   // --------------------------------------------------------------- drawing
@@ -95,6 +101,7 @@ class SketchLogic extends GameLogic {
     if (host.phase != Phase.play || host.meId != drawer) return;
     if (id == null) {
       strokes.add({'color': color, 'width': width, 'pts': pts});
+      rev++;
       if (strokes.length > 500) strokes.removeAt(0);
       host.send({
         't': 'sketchStroke',
@@ -109,6 +116,7 @@ class SketchLogic extends GameLogic {
     } else {
       strokes.add({'id': id, 'color': color, 'width': width, 'pts': pts});
     }
+    rev++;
     host.send({
       't': 'sketchStroke',
       'node': host.meId,
@@ -120,6 +128,7 @@ class SketchLogic extends GameLogic {
   void clearCanvas() {
     if (host.phase != Phase.play || host.meId != drawer) return;
     strokes.clear();
+    rev++;
     host.send({'t': 'sketchClear', 'node': host.meId});
   }
 
@@ -150,6 +159,7 @@ class SketchLogic extends GameLogic {
         strokes.add(s);
       }
       if (strokes.length > 500) strokes.removeAt(0);
+      rev++;
     }
   }
 
@@ -165,7 +175,6 @@ class SketchLogic extends GameLogic {
     drawerP?.score++;
     guesser?.score++;
     host.endRound();
-    host.sfx('win');
     host.send({
       't': 'sketchSolved',
       'node': host.meId,

@@ -61,14 +61,22 @@ try {
   const boardBefore = (await state(pageB)).board;
 
   // ---- the reload: a "long disconnection" from A's point of view ----------
+  // The app must PROMPT before rejoining (no surprise rejoin).
   console.log("reloading Alice's tab ...");
   await pageA.goto(base, { waitUntil: "load", timeout: 60_000 });
   await waitFor(() => state(pageA), 90_000, "flutter re-booted");
-  // maybeRejoin fires ~800ms after init
+  await waitFor(async () => {
+    const a = await state(pageA);
+    return a.rejoinRoom === room ? a : null;
+  }, 60_000, "rejoin prompt to be offered");
+  // still in the lobby until the user answers
+  const beforeClick = await state(pageA);
+  if (beforeClick.phase !== "lobby") fail("rejoined without the prompt");
+  await pageA.getByText("REJOIN", { exact: true }).click();
   await waitFor(async () => {
     const a = await state(pageA);
     return a.phase === "play" && a.players === 2 ? a : null;
-  }, 90_000, "auto-rejoin and state resync");
+  }, 90_000, "prompted rejoin and state resync");
 
   const a = await state(pageA);
   console.log("A after reload:", JSON.stringify({
@@ -92,10 +100,10 @@ try {
   await waitFor(async () => ((await state(pageA))?.phase === "lobby" ? true : null), 15_000, "lobby after leave");
   await pageA.goto(base, { waitUntil: "load", timeout: 60_000 });
   await waitFor(() => state(pageA), 90_000, "flutter re-booted");
-  await sleep(3000); // give maybeRejoin its window - it must NOT fire
+  await sleep(3000); // give offerRejoin its window - it must NOT fire
   const a2 = await state(pageA);
-  const ok2 = a2.phase === "lobby";
-  console.log("A after leave+reload:", a2.phase, ok2 ? "(stays in lobby)" : "(rejoined!)");
+  const ok2 = a2.phase === "lobby" && (a2.rejoinRoom ?? "") === "";
+  console.log("A after leave+reload:", a2.phase, ok2 ? "(stays in lobby, no prompt)" : "(rejoined!)");
 
   const ok = ok1 && ok2;
   console.log(ok ? "PASS: identity + room resume across reloads, leave clears the cache ✅" : "FAIL");

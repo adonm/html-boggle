@@ -13,7 +13,6 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'audio.dart';
 import 'board.dart';
 import 'games/boggle_logic.dart';
 import 'games/chess_logic.dart';
@@ -143,13 +142,9 @@ class Game extends ChangeNotifier implements GameHost {
   Random get rng => _rng;
 
   @override
-  void sfx(String name) => Sfx.play(name);
-
-  @override
   void pulseWordAttempt() {
     wordAttempts++;
     Haptics.fail();
-    Sfx.play('fail');
     notifyListeners();
   }
 
@@ -157,7 +152,6 @@ class Game extends ChangeNotifier implements GameHost {
   void pulseAward() {
     awardPulse++;
     Haptics.soft();
-    Sfx.play('success');
   }
 
   @override
@@ -169,7 +163,6 @@ class Game extends ChangeNotifier implements GameHost {
   @override
   void endRound() {
     deadline = DateTime.now().subtract(const Duration(seconds: 1));
-    Sfx.play('end');
   }
 
   int remainingMs() {
@@ -187,7 +180,7 @@ class Game extends ChangeNotifier implements GameHost {
     net.registerEventSink();
     _eventsSub = net.events.listen(_onEvent);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    maybeRejoin();
+    offerRejoin();
   }
 
   String randomName() => randomNames[_rng.nextInt(randomNames.length)];
@@ -249,7 +242,6 @@ class Game extends ChangeNotifier implements GameHost {
     if (t.isEmpty || phase == Phase.lobby || phase == Phase.joining) return;
     if (t.length > 200) t = t.substring(0, 200);
     send({'t': 'chat', 'node': meId, 'name': myName, 'text': t});
-    Sfx.play('tap');
     chat.add(ChatMessage(name: myName, text: t, fromMe: true));
     _trimChat();
     notifyListeners();
@@ -261,7 +253,6 @@ class Game extends ChangeNotifier implements GameHost {
     if (me == null || (phase != Phase.room && phase != Phase.results)) return;
     me.ready = !me.ready;
     send({'t': 'ready', 'node': meId, 'ready': me.ready});
-    Sfx.play('tap');
     notifyListeners();
   }
 
@@ -321,7 +312,6 @@ class Game extends ChangeNotifier implements GameHost {
     }
     roundEpoch++;
     phase = Phase.play;
-    Sfx.play('start');
     showToast(_logic.startToast);
   }
 
@@ -534,7 +524,6 @@ class Game extends ChangeNotifier implements GameHost {
       if (phase == Phase.play && deadline != null && now.isAfter(deadline!)) {
         phase = Phase.results;
         Haptics.fail();
-        Sfx.play('end');
         showToast('Round over!');
         if (isHost) sendState();
       }
@@ -568,19 +557,38 @@ class Game extends ChangeNotifier implements GameHost {
 
   // ------------------------------------------------------- room persistence
 
-  /// Rejoin the last room on startup (identity persists via the stored iroh
-  /// secret key; game state resyncs from the host snapshots).
-  void maybeRejoin() {
+  /// A cached room awaiting the user's decision on startup (the lobby
+  /// prompts before rejoining).
+  String? rejoinRoom;
+  String? rejoinName;
+
+  /// Offer to rejoin the last room on startup (identity persists via the
+  /// stored iroh secret key; game state resyncs from the host snapshots).
+  void offerRejoin() {
     if (phase != Phase.lobby) return;
     final cached = storedRoom;
     if (cached == null || cached.isEmpty) return;
-    final name = storedName ?? '';
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (phase == Phase.lobby) {
-        showToast('Rejoining room $cached');
-        join(roomCode: cached, name: name);
-      }
-    });
+    rejoinRoom = cached;
+    rejoinName = storedName ?? '';
+    notifyListeners();
+  }
+
+  /// The user accepted the prompt: rejoin the cached room.
+  void confirmRejoin() {
+    final cached = rejoinRoom;
+    final name = rejoinName ?? '';
+    rejoinRoom = null;
+    rejoinName = null;
+    if (cached == null || cached.isEmpty) return;
+    join(roomCode: cached, name: name);
+  }
+
+  /// The user declined: stay in the lobby and forget the cached room.
+  void dismissRejoin() {
+    rejoinRoom = null;
+    rejoinName = null;
+    forgetRoom();
+    notifyListeners();
   }
 
   /// Leave the current room and forget it locally.
@@ -630,6 +638,7 @@ class Game extends ChangeNotifier implements GameHost {
           for (final p in players) {'score': p.score, 'words': p.words.length},
         ],
         'pids': [for (final p in players) p.id],
+        'rejoinRoom': rejoinRoom ?? '',
         'synced': _syncedFromOthers,
         'stateSent': stateSent,
         'stateReceived': stateReceived,

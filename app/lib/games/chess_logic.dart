@@ -186,7 +186,6 @@ class ChessLogic extends TurnGameLogic<String> {
       'to': to,
       if (promo != null) 'promo': promo,
     });
-    host.sfx('tick');
     _checkEnd();
     host.notifyListeners();
     return true;
@@ -199,7 +198,6 @@ class ChessLogic extends TurnGameLogic<String> {
     final promo = m['promo'] as String?;
     if (!_validate(f, t, promo)) return;
     moves.add('$f$t${promo ?? ''}');
-    host.sfx('tick');
     _checkEnd();
     host.notifyListeners();
   }

@@ -4,7 +4,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import '../audio.dart';
 import '../game.dart';
 import '../theme.dart';
 import 'lobby.dart';
@@ -24,6 +23,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _lastToast = '';
+  bool _promptShown = false;
 
   @override
   void initState() {
@@ -39,6 +39,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onGame() {
     final g = widget.game;
+    if (g.rejoinRoom != null && g.rejoinRoom!.isNotEmpty && !_promptShown) {
+      _promptShown = true;
+      final room = g.rejoinRoom!;
+      final name = g.rejoinName ?? '';
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Rejoin room $room?'),
+          content: Text(
+            name.isEmpty
+                ? 'You were in this room last time. Rejoin it?'
+                : 'You were in this room last time as "$name". Rejoin it?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                g.dismissRejoin();
+              },
+              child: const Text('NOT NOW'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                g.confirmRejoin();
+              },
+              child: const Text('REJOIN'),
+            ),
+          ],
+        ),
+      );
+    }
     if (g.toast.isNotEmpty && g.toast != _lastToast) {
       _lastToast = g.toast;
       ScaffoldMessenger.of(context)
@@ -180,57 +212,29 @@ class ThemeMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _MuteButton(),
-        IconButton(
-          tooltip: 'Theme',
-          icon: const Icon(Icons.palette_outlined),
-          onPressed: () => showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: true,
-            builder: (context) => SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'APPEARANCE',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    const AppearanceSection(),
-                  ],
+    return IconButton(
+      tooltip: 'Theme',
+      icon: const Icon(Icons.palette_outlined),
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'APPEARANCE',
+                  style: Theme.of(context).textTheme.labelMedium,
                 ),
-              ),
+                const SizedBox(height: 12),
+                const AppearanceSection(),
+              ],
             ),
           ),
         ),
-      ],
-    );
-  }
-}
-
-/// Mute toggle for the bundled sound effects (persisted).
-class _MuteButton extends StatefulWidget {
-  @override
-  State<_MuteButton> createState() => _MuteButtonState();
-}
-
-class _MuteButtonState extends State<_MuteButton> {
-  bool _muted = Sfx.muted;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: _muted ? 'Unmute sounds' : 'Mute sounds',
-      icon: Icon(_muted ? Icons.volume_off_outlined : Icons.volume_up_outlined),
-      onPressed: () => setState(() {
-        _muted = !_muted;
-        Sfx.setMuted(_muted);
-      }),
+      ),
     );
   }
 }

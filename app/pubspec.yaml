@@ -15,7 +15,6 @@ dependencies:
   confetti: ^0.8.0
   perfect_freehand: ^2.5.2+1
   chess: ^0.8.1
-  audioplayers: ^6.2.0
   qr_flutter: ^4.1.0
   vibration: ^2.1.0
   chess_vectors_flutter: ^1.1.0
@@ -29,4 +28,3 @@ flutter:
   uses-material-design: true
   assets:
     - assets/words.txt
-    - assets/sfx/

@@ -129,8 +129,6 @@ abstract class GameHost {
 
   void send(Map<String, dynamic> m);
   void showToast(String msg);
-  /// Play a bundled sound effect locally ('start'/'tick'/'tap'/...).
-  void sfx(String name);
   /// Bump the failed-attempt counter (word shake) + haptic.
   void pulseWordAttempt();
   /// Bump the award counter (confetti burst) + haptic.

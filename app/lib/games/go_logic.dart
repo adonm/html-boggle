@@ -102,7 +102,6 @@ class GoLogic extends TurnGameLogic<String> {
     }
     moves.add(coord);
     host.send({'t': 'goMove', 'node': host.meId, 'coord': coord});
-    host.sfx('tick');
     host.notifyListeners();
     return true;
   }

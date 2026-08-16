@@ -192,7 +192,8 @@ class _WtPlayBodyState extends State<WtPlayBody> {
           if (letter != null) return; // occupied by a confirmed tile
           if (_selected == null) return;
           setState(() {
-            _pending[key] = _selected!;
+            // _selected is the chip key "C#0" - store just the letter
+            _pending[key] = _letterOf(_selected!);
             _selected = null;
           });
         },
@@ -299,6 +300,9 @@ class _WtPlayBodyState extends State<WtPlayBody> {
       child: chip,
     );
   }
+
+  /// The letter part of a chip key ("C#0" -> "C").
+  String _letterOf(String key) => key.split('#').first;
 
   void _play() {
     final tiles = <List<dynamic>>[

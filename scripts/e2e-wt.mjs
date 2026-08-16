@@ -88,13 +88,22 @@ try {
   if (!word) fail("no playable word found in the served rack " + rack.join(""));
   console.log("  rack:", rack.join(","), "| playing:", word.toUpperCase());
 
-  // place the word vertically through the center: (5,5)..(5,5+len-1)
-  const tiles = [];
+  // Place the word vertically through the center with the REAL UI:
+  // tap each rack chip (letter text) then the board cell, then PLAY.
+  // This exercises the tap-to-place path (a chip key stripping bug once
+  // leaked "C#0"-style strings into placements here).
   for (let i = 0; i < word.length; i++) {
-    tiles.push([5, 5 + i, word[i].toUpperCase()]);
+    const letter = word[i].toUpperCase();
+    // the chip merges letter + value into one semantics node ("A\n1")
+    await firstPage.getByText(new RegExp(`^${letter}`)).first().click();
+    await sleep(200);
+    await firstPage.getByText(new RegExp(`word tile square 5 ${5 + i}`)).click();
+    await sleep(200);
   }
-  await firstPage.evaluate((t) => window.__boggleDebugWtPlay(JSON.stringify(t)), tiles);
-  await waitFor(async () => ((await state(firstPage))?.wtMoves === 1 ? true : null), 20_000, "play to register");
+  await firstPage.getByText("PLAY", { exact: true }).click();
+  // if a chip key ("C#0") leaked into a placement, validation rejects the
+  // play and wtMoves stays 0 - this waitFor is the guard for that bug.
+  await waitFor(async () => ((await state(firstPage))?.wtMoves === 1 ? true : null), 20_000, "UI play to register");
   await sleep(1200); // let it sync to the other client
 
   // pass-pass ends the game

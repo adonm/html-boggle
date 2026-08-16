@@ -39,8 +39,6 @@ class SoloHost implements GameHost {
   @override
   void send(Map<String, dynamic> m) {}
   @override
-  void sfx(String name) {}
-  @override
   void showToast(String msg) => toasts.add(msg);
   @override
   void pulseWordAttempt() {}
