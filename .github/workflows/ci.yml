@@ -36,7 +36,7 @@ jobs:
             ~/.pub-cache
             net/target
             app/build
-          key: build-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'app/pubspec.lock', 'mise.toml') }}
+          key: build-${{ runner.os }}-${{ hashFiles('net/Cargo.lock', 'app/pubspec.lock', 'mise.toml', 'scripts/setup.ts') }}
           restore-keys: |
             build-${{ runner.os }}-
 

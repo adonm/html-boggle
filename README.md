@@ -171,7 +171,8 @@ repeats (periodic hellos, claim retries) would otherwise be dropped.
 
 Scoring is classic Boggle: 3–4 letters = 1, 5 = 2, 6 = 3, 7 = 5, 8+ = 11. Rounds are 3
 minutes; scores accumulate, found words reset each round. Word validation uses a public-domain
-word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as an app asset).
+word list (dwyl/english-words, filtered to 2–16 letters, sorted; fetched at build time by
+`scripts/setup.ts`, not stored in the repo).
 
 ## Notes & limitations
 
@@ -192,6 +193,5 @@ word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as
 
 ## License
 
-Licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)). The bundled word list
-(`app/assets/words.txt`, derived from
-[dwyl/english-words](https://github.com/dwyl/english-words)) is public domain.
+Licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)). The word list (fetched
+at build time from [dwyl/english-words](https://github.com/dwyl/english-words)) is public domain.

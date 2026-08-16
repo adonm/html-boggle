@@ -1,7 +1,7 @@
 /**
  * setup.ts - fetch and cache everything the build needs (one-time, idempotent):
  *   .cache/bin/wasm-bindgen  wasm-bindgen-cli matching net/Cargo.toml
- *   .cache/words.txt      public-domain word list, filtered to 3..16 lowercase letters
+ *   .cache/words.txt      public-domain word list, filtered to 2..16 lowercase letters
  *
  * Everything is extracted with pure Deno code (no unzip/tar dependency).
  */
@@ -90,7 +90,7 @@ async function ensureWords(): Promise<void> {
   const lines = raw
     .split("\n")
     .map((w) => w.trimEnd())
-    .filter((w) => /^[a-z]{3,16}$/.test(w));
+    .filter((w) => /^[a-z]{2,16}$/.test(w));
   await Deno.writeFile(out, new TextEncoder().encode(lines.join("\n") + "\n"));
   console.log(`words.txt ready: ${lines.length} words`);
 }

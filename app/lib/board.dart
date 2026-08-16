@@ -43,7 +43,7 @@ int scoreForLen(int len) {
 class WordFinder {
   WordFinder(List<String> words) : _dict = words;
 
-  /// Sorted word list (3..16 lowercase letters).
+  /// Sorted word list (2..16 lowercase letters).
   final List<String> _dict;
 
   List<String> board = const [];

@@ -181,7 +181,7 @@ class Game extends ChangeNotifier implements GameHost {
   Future<void> init() async {
     final text = await rootBundle.loadString('assets/words.txt');
     finder = WordFinder(
-      text.split('\n').where((w) => w.length >= 3 && w.length <= 16).toList()
+      text.split('\n').where((w) => w.length >= 2 && w.length <= 16).toList()
         ..sort(),
     );
     net.registerEventSink();

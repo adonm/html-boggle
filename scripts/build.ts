@@ -49,7 +49,7 @@ async function genWordsAsset(): Promise<void> {
   const words = (await Deno.readTextFile(new URL("../.cache/words.txt", import.meta.url).pathname))
     .split("\n")
     .map((w) => w.trimEnd())
-    .filter((w) => /^[a-z]{3,16}$/.test(w))
+    .filter((w) => /^[a-z]{2,16}$/.test(w))
     .sort();
   await Deno.writeTextFile(new URL("assets/words.txt", APP), words.join("\n") + "\n");
   console.log(`words asset: ${words.length} words`);

@@ -6,3 +6,6 @@ net/target/
 *.wasm
 
 app/build/
+
+# Build-time generated word list (scripts/setup.ts -> scripts/build.ts)
+app/assets/words.txt

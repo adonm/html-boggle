@@ -100,6 +100,23 @@ void main() {
     expect(score, (3 + 1 + 1) + (3 + 1 + 1));
   });
 
+  test('two-letter line and cross words are legal', () {
+    // existing A at (5,6); play T O vertically at x=4 -> line TO + cross TA
+    final board = {'5:6': 'A'};
+    final tiles = [
+      [4, 6, 'T'],
+      [4, 7, 'O'],
+    ];
+    final err = WtGame.validate(
+      board: board,
+      rack: ['T', 'O'],
+      tiles: tiles,
+      hasWord: (w) => true,
+    );
+    expect(err, isNull);
+    expect(WtGame.formedWords(board, tiles), ['TO', 'TA']);
+  });
+
   test('bingo bonus for a 7-tile play', () {
     expect(
       WtGame.scoreWords(['AAAAAAA'], opening: false, tileCount: 7),

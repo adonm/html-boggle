@@ -7,7 +7,7 @@
 ///   - tiles all in one row or column, contiguous (no gaps), on empty squares
 ///   - the first play must cover the center star (double word); later plays
 ///     must touch an existing tile
-///   - every formed word (main + perpendicular crosses) is 3+ letters and in
+///   - every formed word (main + perpendicular crosses) is 2+ letters and in
 ///     the dictionary
 ///   - scoring: sum of letter values of every formed word; +50 for a 7-tile
 ///     play; the opening play is doubled.
@@ -116,7 +116,7 @@ class WtGame {
       if (cross.length >= 2) words.add(cross);
     }
     for (final w in words) {
-      if (w.length < 3) return '"$w" is too short (3+ letters)';
+      if (w.length < 2) return '"$w" is too short (2+ letters)';
       if (!hasWord(w.toLowerCase())) return '"$w" is not a dictionary word';
     }
     return null;
