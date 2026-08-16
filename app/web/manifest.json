@@ -1,11 +1,11 @@
 {
-    "name": "Boggle",
-    "short_name": "Boggle",
+    "name": "Huddle",
+    "short_name": "Huddle",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#242424",
     "theme_color": "#E95420",
-    "description": "Multiplayer Boggle over iroh gossip - same room code, same game.",
+    "description": "Huddle: six party games over iroh gossip - one room code, no servers.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

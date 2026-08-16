@@ -1,4 +1,6 @@
-# html-boggle
+# Huddle
+
+*The repo is still `html-boggle`; the app itself is **Huddle**.*
 
 A realtime multiplayer **party-game suite** for the web — rendered with **Flutter** (Yaru theme), networked
 with **iroh gossip** (Rust → WebAssembly), tooled with **mise** and **Deno**. No server
@@ -21,7 +23,7 @@ but public pkarr relays in between.
 
 ## Games
 
-The room is a shell for pick-and-play party games — the round starter picks one; the choice
+Huddle is a shell for pick-and-play party games — the round starter picks one; the choice
 rides along in the `start` message so everyone lands in the same game. Each game has a short
 description + how-to guide right in the room's picker. Every game also works with a single
 player (join a room alone) so you can test each one without friends:
@@ -127,7 +129,7 @@ Pushing to `main` builds the game with [mise-action](https://github.com/jdx/mise
 1. Repo settings → Pages → Source: **GitHub Actions** (one-time).
 2. Push to `main`.
 
-The live game is at **[boggle.adonm.dev](https://boggle.adonm.dev)**. The custom domain is
+The live game is at **[boggle.adonm.dev](https://boggle.adonm.dev)** (the app is called Huddle; the domain predates the rename). The custom domain is
 kept alive across workflow deploys by the `CNAME` file the build emits into `dist/` (Pages
 needs it inside the artifact). The site also works from any base path — the Flutter build
 resolves its own `<base href>` at runtime — and is fully multiplayer on static hosting: the
@@ -144,7 +146,7 @@ game has no server component. There is also a manually-triggered
 | `app/lib/screens/` | one file per screen (`home`, `lobby`, `room`, `results`, `shared`) and per-game play views under `screens/play/` |
 | `net/`            | Rust crate: iroh 1.0 + iroh-gossip 0.101 → wasm-bindgen, pkarr rendezvous |
 | `glue/glue.js`    | bridge: pkarr discovery, Dart↔iroh event plumbing, persisted identity |
-| `scripts/`        | `setup.ts`, `build.ts`, `dev.ts` (pure Deno), `e2e-*.mjs` (playwright) |
+| `scripts/`        | `setup.ts`, `build.ts`, `dev.ts`, `gen_sfx.ts`, `gen_icons.ts` (pure Deno), `e2e-*.mjs` (playwright) |
 
 ## Gossip message protocol
 

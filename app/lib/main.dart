@@ -21,7 +21,7 @@ Future<void> main() async {
     ListenableBuilder(
       listenable: themes,
       builder: (context, _) => MaterialApp(
-        title: 'Boggle',
+        title: 'Huddle',
         debugShowCheckedModeBanner: false,
         theme: themes.themeData,
         home: HomeScreen(game: game),

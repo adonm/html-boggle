@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../game.dart';
 import '../net.dart';
 import '../theme.dart';
+import '../widgets/game_icon.dart';
 import 'home.dart';
 import 'shared.dart';
 
@@ -42,7 +43,7 @@ class GameModePicker extends StatelessWidget {
               DropdownMenuEntry(
                 value: m,
                 label: '${m.title}${m.implemented ? '' : '  (soon)'}',
-                leadingIcon: Icon(_modeIcon(m)),
+                leadingIcon: gameIcon(m, size: 20),
               ),
           ],
         ),
@@ -52,14 +53,6 @@ class GameModePicker extends StatelessWidget {
     );
   }
 
-  static IconData _modeIcon(GameMode m) => switch (m) {
-        GameMode.boggle => Icons.grid_4x4,
-        GameMode.scattergories => Icons.abc,
-        GameMode.sketchit => Icons.brush,
-        GameMode.chess => Icons.sports_esports,
-        GameMode.go => Icons.blur_circular,
-        GameMode.wordtiles => Icons.view_module,
-      };
 }
 
 /// Short description + how-to guide for the selected game.
