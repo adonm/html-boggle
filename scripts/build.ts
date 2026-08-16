@@ -45,7 +45,9 @@ async function buildNet(): Promise<void> {
 
 async function genWordsAsset(): Promise<void> {
   // The word list is an app asset; words_alpha.txt is NOT sorted, so sort it
-  // here (the game binary-searches the dictionary).
+  // here (the game binary-searches the dictionary). The assets dir is not
+  // tracked in git (its contents are generated), so create it first.
+  await Deno.mkdir(new URL("assets/", APP), { recursive: true });
   const words = (await Deno.readTextFile(new URL("../.cache/words.txt", import.meta.url).pathname))
     .split("\n")
     .map((w) => w.trimEnd())
