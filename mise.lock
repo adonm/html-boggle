@@ -32,31 +32,6 @@ url = "https://dl.deno.land/release/v2.9.5/deno-x86_64-apple-darwin.zip"
 checksum = "sha256:171efab55ac6b9881fd53ee4c20f8bf3bb1340ffc618483746909014db12216a"
 url = "https://dl.deno.land/release/v2.9.5/deno-x86_64-pc-windows-msvc.zip"
 
-[[tools.emsdk]]
-version = "3.1.71"
-backend = "vfox:emsdk"
-
-[tools.emsdk."platforms.linux-arm64"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.linux-arm64-musl"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.linux-x64"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.linux-x64-musl"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.macos-arm64"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.macos-x64"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
-[tools.emsdk."platforms.windows-x64"]
-url = "https://github.com/emscripten-core/emsdk/archive/refs/heads/main.tar.gz"
-
 [[tools.flutter]]
 version = "3.47.0"
 backend = "http:flutter"
@@ -80,6 +55,45 @@ url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/maco
 [tools.flutter."platforms.windows-x64"]
 checksum = "sha256:9f96d393cdfad05bea0b4b42c603ffda027af11adadc8e4cf3ac87e49110c1ca"
 url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.0-stable.zip"
+
+[[tools.miniserve]]
+version = "0.35.0"
+backend = "aqua:svenstaro/miniserve"
+
+[tools.miniserve."platforms.linux-arm64"]
+checksum = "sha256:732b1d5b30a3903580cee9ca24b2ff04ba2a5c78fa1ba6579dc5154fc431b40a"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-aarch64-unknown-linux-musl"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391553322"
+
+[tools.miniserve."platforms.linux-arm64-musl"]
+checksum = "sha256:732b1d5b30a3903580cee9ca24b2ff04ba2a5c78fa1ba6579dc5154fc431b40a"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-aarch64-unknown-linux-musl"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391553322"
+
+[tools.miniserve."platforms.linux-x64"]
+checksum = "sha256:c630ee030d5d9d83c88c5cc72f43ae215b0c214d64fd7afc92244fe369af2964"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-x86_64-unknown-linux-musl"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391553375"
+
+[tools.miniserve."platforms.linux-x64-musl"]
+checksum = "sha256:c630ee030d5d9d83c88c5cc72f43ae215b0c214d64fd7afc92244fe369af2964"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-x86_64-unknown-linux-musl"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391553375"
+
+[tools.miniserve."platforms.macos-arm64"]
+checksum = "sha256:8e8dc916b1dc3bc2a46bf5a44308caf7db153e6940db178668929e1de40d1fbb"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-aarch64-apple-darwin"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391554254"
+
+[tools.miniserve."platforms.macos-x64"]
+checksum = "sha256:63a99448bf7c450f1264a1af313646df30251bdbc3284b8f4d2d55cee2b98c55"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-x86_64-apple-darwin"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391554369"
+
+[tools.miniserve."platforms.windows-x64"]
+checksum = "sha256:3229e75b40b3870382d23c9a0ecec880b9bd5f6e49160ce602bb15d00f275b6a"
+url = "https://github.com/svenstaro/miniserve/releases/download/v0.35.0/miniserve-0.35.0-x86_64-pc-windows-msvc.exe"
+url_api = "https://api.github.com/repos/svenstaro/miniserve/releases/assets/391555761"
 
 [[tools.node]]
 version = "26.5.0"

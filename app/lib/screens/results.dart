@@ -301,7 +301,7 @@ class SketchResultsBanner extends StatelessWidget {
 
 // -------------------------------------------------------------------- chess
 
-/// Capture Chess play view: tap a piece, then a highlighted square.
+/// Chess play view: tap a piece, then a highlighted square.
 class ChessResultsBanner extends StatelessWidget {
   const ChessResultsBanner({super.key, required this.game});
 

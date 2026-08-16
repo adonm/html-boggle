@@ -48,7 +48,7 @@ jobs:
 
       - name: Check
         run: |
-          deno check server/main.ts scripts/*.ts
+          deno check scripts/*.ts
           node --check scripts/e2e-web.mjs
 
       - name: Setup Pages

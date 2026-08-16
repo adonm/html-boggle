@@ -9,8 +9,8 @@ const ROOT = new URL("..", import.meta.url);
 console.log("building...");
 await build();
 
-const server = new Deno.Command("deno", {
-  args: ["run", "-A", "--watch=server/main.ts", "server/main.ts"],
+const server = new Deno.Command("miniserve", {
+  args: ["dist", "--port", Deno.env.get("PORT") ?? "8000", "--index", "index.html"],
   cwd: ROOT,
   stdout: "inherit",
   stderr: "inherit",

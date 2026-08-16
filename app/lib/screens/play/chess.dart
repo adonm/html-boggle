@@ -1,4 +1,4 @@
-/// Capture Chess play view: tap a piece, then a highlighted square.
+/// Chess play view: tap a piece, then a highlighted square.
 library;
 
 import 'package:flutter/material.dart';

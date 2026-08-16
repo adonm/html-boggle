@@ -22,14 +22,6 @@ async function run(cmd: string[], cwd: URL = ROOT): Promise<void> {
   if (!status.success) throw new Error(`command failed: ${cmd.join(" ")}`);
 }
 
-async function optionalRun(cmd: string[], cwd: URL = ROOT): Promise<void> {
-  try {
-    await run(cmd, cwd);
-  } catch {
-    console.warn("(non-fatal) skipped:", cmd.join(" "));
-  }
-}
-
 async function buildNet(): Promise<void> {
   await run([
     "cargo",
@@ -48,15 +40,6 @@ async function buildNet(): Promise<void> {
     "--out-dir",
     new URL("net/", DIST).pathname,
     "net/target/wasm32-unknown-unknown/release/boggle_net.wasm",
-  ]);
-  // Shrink with binaryen (ships with emsdk); non-fatal if unavailable.
-  await optionalRun([
-    "wasm-opt",
-    "-O2",
-    "--enable-bulk-memory",
-    new URL("net/boggle_net_bg.wasm", DIST).pathname,
-    "-o",
-    new URL("net/boggle_net_bg.wasm", DIST).pathname,
   ]);
 }
 

@@ -1,5 +1,6 @@
 [tools]
 deno = "2"
+miniserve = "0.35.0"
 rust = "1.96"
 node = "26"
 flutter = "3.47.0"
@@ -12,14 +13,14 @@ build = "deno run -A scripts/build.ts"
 # Rebuild on source change and serve at http://localhost:8000
 dev = "deno run -A scripts/dev.ts"
 # Serve an existing dist/ build.
-serve = "deno run -A server/main.ts"
+serve = "miniserve dist --port 8000 --index index.html"
 # Two real browsers join one room and play a word (needs a chromium headless shell).
 test = "node scripts/e2e-web.mjs"
 # Scattergories round: duplicates cancel, scores agree on both sides.
 test-scatter = "node scripts/e2e-scatter.mjs"
 # SketchIt round: real canvas strokes sync; a correct guess scores and ends the round.
 test-sketch = "node scripts/e2e-sketch.mjs"
-# Capture Chess: UI + hook moves, capture-the-king win, mid-game spectator agrees.
+# Chess: UI + hook moves, capture-the-king win, mid-game spectator agrees.
 test-chess = "node scripts/e2e-chess.mjs"
 # Identity/room persistence: reload auto-rejoins the live round; leave clears the cache.
 test-resume = "node scripts/e2e-resume.mjs"

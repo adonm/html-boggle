@@ -1,4 +1,4 @@
-/// Capture Chess: full piece movement, no check/checkmate bookkeeping -
+/// Chess: full piece movement, no check/checkmate bookkeeping -
 /// capturing the king wins. No castling, no en passant; pawns auto-promote
 /// to queens. Two players; everyone else spectates.
 library;

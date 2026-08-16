@@ -1,5 +1,5 @@
 /**
- * e2e-chess.mjs - Capture Chess test:
+ * e2e-chess.mjs - Chess (capture-the-king) test:
  *   two players join, pick chess, ready up, start. White's first move is made
  *   through the real UI (tap squares); a third browser joins mid-game and
  *   spectates. Black wins with the capture-the-king fool's mate; all three
@@ -86,16 +86,15 @@ async function waitFor(fn, timeoutMs, what) {
 
 console.log("starting server on :" + PORT + " ...");
 const server = spawn(
-  "deno",
-  ["run", "-A", "server/main.ts"],
-  { cwd: new URL("..", import.meta.url).pathname, env: { ...process.env, PORT: String(PORT) },
-    stdio: "ignore" },
+  "miniserve",
+  ["dist", "--port", String(PORT), "--index", "index.html"],
+  { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" },
 );
 {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
-      const r = await fetch(`${BASE}/api/health`);
+      const r = await fetch(`${BASE}/`);
       if (r.ok) break;
     } catch { /* not up yet */ }
     await sleep(300);
@@ -224,7 +223,7 @@ try {
   console.log("A:", JSON.stringify({ winner: fa.chessWinner, synced: fa.synced, sent: fa.stateSent, recv: fa.stateReceived }));
   console.log("B:", JSON.stringify({ winner: fb.chessWinner, synced: fb.synced, sent: fb.stateSent, recv: fb.stateReceived }));
   console.log("C:", JSON.stringify({ winner: fc.chessWinner, moves: fc.chessMoves, phase: fc.phase, synced: fc.synced, sent: fc.stateSent, recv: fc.stateReceived, players: fc.players }));
-  console.log(ok ? "PASS: capture-the-king game with a mid-game spectator ✅" : "FAIL");
+  console.log(ok ? "PASS: chess capture-the-king game with a mid-game spectator ✅" : "FAIL");
   if (!ok) process.exitCode = 1;
 } catch (err) {
   console.error(err.message ?? err);

@@ -1,4 +1,4 @@
-/// Shared base for replicated-log games (Capture Chess, Go, Word Tiles):
+/// Shared base for replicated-log games (Chess, Go, Word Tiles):
 /// seats pinned at round start, turn derived from the log, sticky winner,
 /// monotonic log adoption, and the common end-of-game flow. Also the tiny
 /// state-merge helpers the other games use for snapshot adoption.

@@ -28,7 +28,7 @@ extension GameModeInfo on GameMode {
         GameMode.boggle => 'Boggle',
         GameMode.scattergories => 'Scattergories',
         GameMode.sketchit => 'SketchIt',
-        GameMode.chess => 'Capture Chess',
+        GameMode.chess => 'Chess',
         GameMode.go => 'Go (9×9)',
         GameMode.wordtiles => 'Word Tiles',
       };
@@ -46,9 +46,9 @@ extension GameModeInfo on GameMode {
               'the exact answer to score (drawer and guesser both get a point). The '
               'drawer rotates each round.',
         GameMode.chess =>
-          'Chess with a twist: capture the king to win - no check/checkmate '
-              'bookkeeping, no castling. Pawns auto-promote to queens. Two players; '
-              'everyone else spectates.',
+          'Classic chess with a party twist: capture the king to win - no '
+              'check/checkmate bookkeeping, no castling. Pawns auto-promote to '
+              'queens. Two players; everyone else spectates.',
         GameMode.go =>
           'Go on a 9×9 board: place stones, capture groups by surrounding them, '
               'simple ko rule. Two consecutive passes end the game; area scoring '

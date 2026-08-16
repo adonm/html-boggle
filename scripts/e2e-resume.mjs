@@ -87,16 +87,15 @@ async function waitFor(fn, timeoutMs, what) {
 
 console.log("starting server on :" + PORT + " ...");
 const server = spawn(
-  "deno",
-  ["run", "-A", "server/main.ts"],
-  { cwd: new URL("..", import.meta.url).pathname, env: { ...process.env, PORT: String(PORT) },
-    stdio: "ignore" },
+  "miniserve",
+  ["dist", "--port", String(PORT), "--index", "index.html"],
+  { cwd: new URL("..", import.meta.url).pathname, stdio: "ignore" },
 );
 {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
-      const r = await fetch(`${BASE}/api/health`);
+      const r = await fetch(`${BASE}/`);
       if (r.ok) break;
     } catch { /* not up yet */ }
     await sleep(300);

@@ -1,4 +1,4 @@
-/// Capture Chess: full piece movement, win by king capture, pawns
+/// Chess: full piece movement, win by king capture, pawns
 /// auto-queen, no castling. Replicated move log; seats pinned at round
 /// start so a late spectator can never steal one.
 library;

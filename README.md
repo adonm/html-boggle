@@ -33,9 +33,10 @@ description + how-to guide right in the room's picker:
 - **SketchIt** — one player draws a secret word on a live canvas (strokes stream to everyone)
   while the others type guesses; the exact answer scores for both the guesser and the drawer.
   The drawer rotates each round.
-- **Capture Chess** — chess with a twist: capture the king to win (no check/checkmate
-  bookkeeping, no castling, pawns auto-promote to queens). Two players; everyone else watches
-  as a spectator. Moves are a replicated log, so everyone sees the same board.
+- **Chess** — classic chess with a party twist: capture the king to win (no
+  check/checkmate bookkeeping, no castling, pawns auto-promote to queens). Two players;
+  everyone else watches as a spectator. Moves are a replicated log, so everyone sees the
+  same board.
 - **Go (9×9)** — classic Go: place stones, surround groups to capture, simple ko. Two
   consecutive passes end the game; area scoring (stones + surrounded territory) decides it.
   Two players, others spectate.
@@ -94,7 +95,8 @@ mise trust          # first time only (or `mise trust` on first run prompt)
 mise install        # deno 2, rust 1.96, flutter 3.47, node 26
 mise run setup      # rust wasm target + vendored build inputs (wasm-bindgen-cli, word list)
 mise run build      # iroh wasm module + flutter web app -> dist/
-mise run dev        # build + watch + serve http://localhost:8000
+mise run dev        # build + watch + serve http://localhost:8000 (miniserve)
+mise run serve      # serve an existing dist/ build with miniserve
 mise run test       # e2e: two headless browsers join one room and play a word
 mise run test-scatter  # e2e: scattergories round, duplicate cancellation
 mise run test-sketch   # e2e: sketchit draw + guess round
@@ -104,8 +106,8 @@ mise run test-go       # e2e: go with a capture and pass-pass end
 mise run test-wt       # e2e: word tiles play through the star
 ```
 
-Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — the dev
-server binds `0.0.0.0`), enter the same room code in both, and play. Browsers need internet
+Open http://localhost:8000 in two browser tabs (or two phones on the same wifi — miniserve
+binds `0.0.0.0`), enter the same room code in both, and play. Browsers need internet
 access for the public iroh/pkarr relays. `mise run test` bootstraps playwright-core into
 `.cache/pw` and needs a chromium headless shell (`npx playwright install chromium-headless-shell`).
 
@@ -129,10 +131,11 @@ game has no server component. There is also a manually-triggered
 | Path              | What                                                        |
 | ----------------- | ----------------------------------------------------------- |
 | `mise.toml`       | pinned tools + `setup` / `build` / `dev` / `serve` / `test` tasks |
-| `app/`            | the Flutter game: Yaru UI, game controller, word validation |
+| `app/lib/game.dart` | the room shell: presence, chat, ready flow, host election, state snapshots |
+| `app/lib/games/`  | one `GameLogic` per game (`boggle_logic.dart`, `chess_logic.dart`, ...) + the shared `turn_game.dart` base |
+| `app/lib/screens/` | one file per screen (`home`, `lobby`, `room`, `results`, `shared`) and per-game play views under `screens/play/` |
 | `net/`            | Rust crate: iroh 1.0 + iroh-gossip 0.101 → wasm-bindgen, pkarr rendezvous |
 | `glue/glue.js`    | bridge: pkarr discovery, Dart↔iroh event plumbing, persisted identity |
-| `server/main.ts`  | Deno static file server for `dist/` (dev convenience only)  |
 | `scripts/`        | `setup.ts`, `build.ts`, `dev.ts` (pure Deno), `e2e-*.mjs` (playwright) |
 
 ## Gossip message protocol
@@ -178,3 +181,9 @@ word list (dwyl/english-words, filtered to 3–16 letters, sorted and bundled as
 - Sketch strokes are ephemeral: a mid-round reconnect resyncs the word/drawer/scores but
   not the in-progress canvas.
 - The dictionary is client-side; there is no anti-cheat. This is a party game.
+
+## License
+
+Licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)). The bundled word list
+(`app/assets/words.txt`, derived from
+[dwyl/english-words](https://github.com/dwyl/english-words)) is public domain.
