@@ -37,15 +37,17 @@ const N0_RELAYS = [
 /**
  * Persisted identity: the same 32-byte secret key on every visit, so
  * reconnecting to a room restores your node id and the room recognizes you.
+ * Stored per-tab (sessionStorage): it survives reloads within the tab but
+ * lets other tabs in the same browser be different players.
  */
 function loadSecret() {
   const key = "boggle.secretKey";
   try {
-    const existing = localStorage.getItem(key);
+    const existing = sessionStorage.getItem(key);
     if (existing && existing.length === 64) return existing;
     const bytes = crypto.getRandomValues(new Uint8Array(32));
     const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(key, hex);
+    sessionStorage.setItem(key, hex);
     return hex;
   } catch {
     return "";

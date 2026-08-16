@@ -68,6 +68,18 @@ try {
   // drawer = smallest node id (canonical role order, same on both clients)
   const drawerPage = a.sketchDrawer === a.me ? pageA : pageB;
   const guesserPage = drawerPage === pageA ? pageB : pageA;
+
+  // the play navbar shows the room context and the how-to guide
+  await waitFor(async () =>
+    ((await drawerPage.getByText(new RegExp(`ROOM ${room} · 2 players`)).count()) > 0 ? true : null),
+  15_000, "play navbar with room + players");
+  await drawerPage.getByText("How to play").click();
+  await waitFor(async () =>
+    ((await drawerPage.getByText(/HOW TO PLAY:/).count()) > 0 ? true : null),
+  10_000, "how-to dialog");
+  await drawerPage.getByText("DONE", { exact: true }).click();
+  await sleep(300);
+
   console.log(
     "  word:", word,
     "| drawer:", drawerPage === pageA ? "Alice" : "Bob",

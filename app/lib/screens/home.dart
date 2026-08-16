@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../game.dart';
 import '../theme.dart';
+import '../widgets/game_nav.dart';
 import 'lobby.dart';
 import 'play/boggle.dart';
 import 'results.dart';
@@ -96,7 +97,14 @@ class _HomeScreenState extends State<HomeScreen> {
           Phase.lobby => LobbyScreen(game: g),
           Phase.joining => const JoiningScreen(),
           Phase.room => RoomScreen(game: g),
-          Phase.play => PlayScreen(game: g),
+          // during play, a navbar keeps the room context visible: code,
+          // player count, the how-to guide, and a leave button
+          Phase.play => Column(
+            children: [
+              GameNavBar(game: g),
+              Expanded(child: PlayScreen(game: g)),
+            ],
+          ),
           Phase.results => ResultsScreen(game: g),
         };
         return Scaffold(

@@ -82,6 +82,9 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
     // skip near-duplicate points: they feed noise to the stroke builder
     if (_buf.isNotEmpty && (np - _buf.last).distance < 0.004) return;
     _buf.add(np);
+    // the painter renders the live buffer at full pointer rate; committed
+    // strokes are outline-cached, so this repaint is cheap
+    setState(() {});
   }
 
   void _endStroke() {
@@ -146,6 +149,14 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                             painter: SketchPainter(
                               strokes: g.sketch!.strokes,
                               rev: g.sketch!.rev,
+                              liveStrokeId: _strokeId,
+                              livePts: _buf.isEmpty
+                                  ? null
+                                  : [
+                                      for (final p in _buf) ...[p.dx, p.dy],
+                                    ],
+                              liveColor: _color,
+                              liveWidth: _width,
                             ),
                             child: const SizedBox.expand(),
                           ),
