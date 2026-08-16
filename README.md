@@ -36,8 +36,10 @@ Two people entering the same room code are connected to the same gossip channel 
 setup, because everything is derived deterministically from the room code:
 
 1. **Topic**: `topic id = sha256("topic:" + ROOM)` → iroh gossip `TopicId`. Same code, same topic.
-2. **Board**: `board = sha256("board:" + ROOM)` → one face per classic Boggle die. Same code,
-   same 4×4 board on every screen.
+2. **Board**: whoever starts a round **deals a fresh random board** (shuffled classic Boggle
+   dice, one die carries "Qu") and serves it to everyone in the `start` message; state
+   snapshots carry it too, so late joiners and reconnectors adopt the same board. Rejoining a
+   room never replays an old board - you get whatever the current round is playing.
 3. **Rendezvous (serverless)**: a second keypair is derived from the room code
    (`sha256("boggle-room:" + ROOM)`). Every player publishes the ids of everyone they know to
    be alive as TXT records in that keypair's pkarr packet on the public pkarr relay
