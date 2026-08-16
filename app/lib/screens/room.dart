@@ -2,6 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../game.dart';
 import '../net.dart';
@@ -46,6 +48,26 @@ class GameModePicker extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         _ModeGuide(mode: game.mode),
+        if (game.mode == GameMode.chess) ...[
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'standard',
+                label: Text('Standard'),
+                icon: Icon(Icons.menu_book),
+              ),
+              ButtonSegment(
+                value: 'capture',
+                label: Text('Party: capture king'),
+                icon: Icon(Icons.celebration),
+              ),
+            ],
+            selected: {game.chess?.rules ?? 'standard'},
+            showSelectedIcon: false,
+            onSelectionChanged: (sel) => game.chess?.setRules(sel.first),
+          ),
+        ],
       ],
     );
   }
@@ -191,20 +213,29 @@ class RoomScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                       ReadyStartControls(game: g, startLabel: 'START ROUND'),
                       const SizedBox(height: 6),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final url = (Uri.tryParse(pageHref) ?? Uri.base)
-                              .replace(queryParameters: {'room': g.room})
-                              .removeFragment()
-                              .toString();
-                          final shared = await shareLink(
-                            title: 'Boggle room ${g.room}',
-                            url: url,
-                          );
-                          g.showToast(shared ? 'Shared!' : 'Link copied - share it!');
-                        },
-                        icon: const Icon(Icons.link),
-                        label: const Text('SHARE LINK'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final url = _roomLink(g);
+                                final shared = await shareLink(
+                                  title: 'Boggle room ${g.room}',
+                                  url: url,
+                                );
+                                g.showToast(shared ? 'Shared!' : 'Link copied - share it!');
+                              },
+                              icon: const Icon(Icons.link),
+                              label: const Text('SHARE LINK'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.outlined(
+                            tooltip: 'Show QR code',
+                            onPressed: () => _showQr(context, g),
+                            icon: const Icon(Icons.qr_code_2),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                       TextButton.icon(
@@ -231,3 +262,46 @@ class RoomScreen extends StatelessWidget {
 
 // -------------------------------------------------------------------- play
 
+
+/// The room's join link.
+String _roomLink(Game g) => (Uri.tryParse(pageHref) ?? Uri.base)
+    .replace(queryParameters: {'room': g.room})
+    .removeFragment()
+    .toString();
+
+/// QR code dialog: scan to join from another device.
+void _showQr(BuildContext context, Game g) {
+  final url = _roomLink(g);
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Room ${g.room}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          QrImageView(
+            data: url,
+            size: 220,
+            backgroundColor: Colors.white,
+            semanticsLabel: 'room join QR code',
+          ),
+          const SizedBox(height: 10),
+          Text(url, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: url));
+            if (context.mounted) g.showToast('Link copied - share it!');
+          },
+          child: const Text('COPY LINK'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('DONE'),
+        ),
+      ],
+    ),
+  );
+}

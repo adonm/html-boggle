@@ -13,6 +13,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'audio.dart';
 import 'board.dart';
 import 'games/boggle_logic.dart';
 import 'games/chess_logic.dart';
@@ -21,6 +22,7 @@ import 'games/go_logic.dart';
 import 'games/scatter_logic.dart';
 import 'games/sketch_logic.dart';
 import 'games/wt_logic.dart';
+import 'haptics.dart';
 import 'net.dart';
 
 export 'games/game_logic.dart' show GameMode, GameModeInfo, Phase, Player;
@@ -143,16 +145,21 @@ class Game extends ChangeNotifier implements GameHost {
   Random get rng => _rng;
 
   @override
+  void sfx(String name) => Sfx.play(name);
+
+  @override
   void pulseWordAttempt() {
     wordAttempts++;
-    HapticFeedback.selectionClick();
+    Haptics.fail();
+    Sfx.play('fail');
     notifyListeners();
   }
 
   @override
   void pulseAward() {
     awardPulse++;
-    HapticFeedback.mediumImpact();
+    Haptics.soft();
+    Sfx.play('success');
   }
 
   @override
@@ -164,6 +171,7 @@ class Game extends ChangeNotifier implements GameHost {
   @override
   void endRound() {
     deadline = DateTime.now().subtract(const Duration(seconds: 1));
+    Sfx.play('end');
   }
 
   int remainingMs() {
@@ -243,6 +251,7 @@ class Game extends ChangeNotifier implements GameHost {
     if (t.isEmpty || phase == Phase.lobby || phase == Phase.joining) return;
     if (t.length > 200) t = t.substring(0, 200);
     send({'t': 'chat', 'node': meId, 'name': myName, 'text': t});
+    Sfx.play('tap');
     chat.add(ChatMessage(name: myName, text: t, fromMe: true));
     _trimChat();
     notifyListeners();
@@ -254,6 +263,7 @@ class Game extends ChangeNotifier implements GameHost {
     if (me == null || (phase != Phase.room && phase != Phase.results)) return;
     me.ready = !me.ready;
     send({'t': 'ready', 'node': meId, 'ready': me.ready});
+    Sfx.play('tap');
     notifyListeners();
   }
 
@@ -313,6 +323,7 @@ class Game extends ChangeNotifier implements GameHost {
     }
     roundEpoch++;
     phase = Phase.play;
+    Sfx.play('start');
     showToast(_logic.startToast);
   }
 
@@ -524,7 +535,8 @@ class Game extends ChangeNotifier implements GameHost {
       }
       if (phase == Phase.play && deadline != null && now.isAfter(deadline!)) {
         phase = Phase.results;
-        HapticFeedback.heavyImpact();
+        Haptics.fail();
+        Sfx.play('end');
         showToast('Round over!');
         if (isHost) sendState();
       }

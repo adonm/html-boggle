@@ -2,7 +2,7 @@
 /// submissions and retries on non-host clients.
 library;
 
-import 'package:flutter/services.dart';
+import '../haptics.dart';
 
 import '../board.dart';
 import 'game_logic.dart';
@@ -170,7 +170,7 @@ class BoggleLogic extends GameLogic {
       pendingWord = word;
       pendingSentAt = DateTime.now();
       _sendClaim(word);
-      HapticFeedback.selectionClick();
+      Haptics.soft();
       host.showToast('Submitted "$word"');
     }
     host.notifyListeners();

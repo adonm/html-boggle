@@ -165,6 +165,7 @@ class SketchLogic extends GameLogic {
     drawerP?.score++;
     guesser?.score++;
     host.endRound();
+    host.sfx('win');
     host.send({
       't': 'sketchSolved',
       'node': host.meId,

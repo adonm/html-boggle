@@ -1,7 +1,13 @@
-/// Chess: full piece movement, win by king capture, pawns
-/// auto-queen, no castling. Replicated move log; seats pinned at round
-/// start so a late spectator can never steal one.
+/// Chess: two rulesets share one replicated move log.
+///   - 'standard' (default): validated by the pure-Dart `chess` engine -
+///     real legal moves, castling, en passant, promotion, checkmate,
+///     stalemate, insufficient material, threefold repetition.
+///   - 'capture' (party): our simplified rules - capture the king to win.
+/// Seats are pinned at round start so a late spectator can never steal
+/// one; every client validates moves identically, so the logs converge.
 library;
+
+import 'package:chess/chess.dart' as cc;
 
 import '../chess.dart';
 import 'game_logic.dart';
@@ -9,6 +15,9 @@ import 'turn_game.dart';
 
 class ChessLogic extends TurnGameLogic<String> {
   ChessLogic(super.host);
+
+  /// 'standard' (engine rules) or 'capture' (party: king capture wins).
+  String rules = 'standard';
 
   @override
   String get wireName => 'chess';
@@ -23,6 +32,13 @@ class ChessLogic extends TurnGameLogic<String> {
   @override
   String get turnId => whiteTurn ? white : black;
 
+  void setRules(String r) {
+    if (r != rules && (r == 'standard' || r == 'capture')) {
+      rules = r;
+      host.notifyListeners();
+    }
+  }
+
   @override
   void populateStart(Map<String, dynamic> msg) {
     moves.clear();
@@ -32,6 +48,7 @@ class ChessLogic extends TurnGameLogic<String> {
     if (host.players.length < 2) seats = [host.meId, host.meId];
     msg['white'] = white;
     msg['black'] = black;
+    msg['rules'] = rules;
   }
 
   @override
@@ -42,6 +59,8 @@ class ChessLogic extends TurnGameLogic<String> {
       (m['white'] as String?) ?? '',
       (m['black'] as String?) ?? '',
     ]..removeWhere((s) => s.isEmpty);
+    final r = m['rules'];
+    if (r is String && (r == 'standard' || r == 'capture')) rules = r;
   }
 
   @override
@@ -57,6 +76,7 @@ class ChessLogic extends TurnGameLogic<String> {
         'chessWinner': winner,
         'chessWhite': white,
         'chessBlack': black,
+        'chessRules': rules,
       };
 
   @override
@@ -69,6 +89,8 @@ class ChessLogic extends TurnGameLogic<String> {
     final w = adoptNonEmpty(white, m['chessWhite']);
     final b = adoptNonEmpty(black, m['chessBlack']);
     if (w != white || b != black) seats = [w, b];
+    final r = m['chessRules'];
+    if (r is String && (r == 'standard' || r == 'capture')) rules = r;
   }
 
   @override
@@ -77,49 +99,183 @@ class ChessLogic extends TurnGameLogic<String> {
         'chessWinner': winner,
         'chessWhite': white,
         'chessBlack': black,
+        'chessRules': rules,
       };
+
+  // -------------------------------------------------------------- engine
+
+  /// Replay the log through the rules engine (standard mode).
+  cc.Chess _engine() {
+    final g = cc.Chess();
+    for (final mv in moves) {
+      if (mv.length < 4) break;
+      final from = cc.Chess.SQUARES[mv.substring(0, 2)];
+      final to = cc.Chess.SQUARES[mv.substring(2, 4)];
+      if (from == null || to == null) break;
+      final promo = mv.length > 4 ? _promoFrom(mv[4]) : null;
+      final legal = g.generate_moves().where((m) =>
+          m.from == from &&
+          m.to == to &&
+          (promo == null ? m.promotion == null : m.promotion == promo));
+      if (legal.isEmpty) break;
+      g.make_move(legal.first);
+    }
+    return g;
+  }
+
+  static cc.PieceType? _promoFrom(String c) => switch (c.toLowerCase()) {
+        'q' => cc.PieceType.QUEEN,
+        'r' => cc.PieceType.ROOK,
+        'b' => cc.PieceType.BISHOP,
+        'n' => cc.PieceType.KNIGHT,
+        _ => null,
+      };
+
+  static String _promoChar(cc.PieceType p) => switch (p) {
+        cc.PieceType.QUEEN => 'q',
+        cc.PieceType.ROOK => 'r',
+        cc.PieceType.BISHOP => 'b',
+        cc.PieceType.KNIGHT => 'n',
+        _ => 'q',
+      };
+
+  static String _pieceChar(cc.Piece? p) {
+    if (p == null) return '.';
+    final white = p.color == cc.Color.WHITE;
+    return switch (p.type) {
+      cc.PieceType.KING => white ? 'K' : 'k',
+      cc.PieceType.QUEEN => white ? 'Q' : 'q',
+      cc.PieceType.ROOK => white ? 'R' : 'r',
+      cc.PieceType.BISHOP => white ? 'B' : 'b',
+      cc.PieceType.KNIGHT => white ? 'N' : 'n',
+      _ => white ? 'P' : 'p',
+    };
+  }
+
+  /// Board for rendering: 64 chars (a8=0), engine state in standard mode,
+  /// replayed capture board in party mode.
+  List<String> get displayBoard {
+    if (rules == 'capture') return ChessBoard.fromMoves(moves);
+    final g = _engine();
+    return [
+      for (var i = 0; i < 64; i++)
+        _pieceChar(g.board[(i ~/ 8) * 16 + (i % 8)]),
+    ];
+  }
+
+  /// True when the side to move is in check (standard mode).
+  bool get isCheck => rules == 'standard' && _engine().in_check;
+
+  /// Legal target square names for the piece on [from] ("e2").
+  Set<String> legalTargetsFrom(String from) {
+    if (rules == 'capture') {
+      return {
+        for (final i in ChessBoard.targets(
+            ChessBoard.fromMoves(moves), ChessBoard.sq(from)))
+          ChessBoard.sqName(i),
+      };
+    }
+    final sq = cc.Chess.SQUARES[from];
+    if (sq == null) return const {};
+    return {
+      for (final m in _engine().generate_moves())
+        if (m.from == sq) m.toAlgebraic,
+    };
+  }
+
+  /// Promotion piece for a pending from->to move, or null (standard mode).
+  String? promotionFor(String from, String to) {
+    if (rules != 'standard') return null;
+    final f = cc.Chess.SQUARES[from];
+    final t = cc.Chess.SQUARES[to];
+    if (f == null || t == null) return null;
+    for (final m in _engine().generate_moves()) {
+      if (m.from == f && m.to == t && m.promotion != null) {
+        return _promoChar(m.promotion!);
+      }
+    }
+    return null;
+  }
 
   // ------------------------------------------------------------------ moves
 
-  /// Current player: attempt a move from-to ("e2", "e4").
-  bool tryMove(String from, String to) {
+  /// Current player: attempt a move from-to ("e2", "e4"), with an optional
+  /// promotion piece char.
+  bool tryMove(String from, String to, {String? promo}) {
     if (host.phase != Phase.play || winner.isNotEmpty) return false;
     if (host.meId != turnId) return false;
-    final f = ChessBoard.sq(from);
-    final t = ChessBoard.sq(to);
-    if (f < 0 || t < 0 || f == t) return false;
-    final b = ChessBoard.fromMoves(moves);
-    if (!ChessBoard.targets(b, f).contains(t)) return false;
-    moves.add('${from}${to}');
-    host.send({'t': 'chessMove', 'node': host.meId, 'from': from, 'to': to});
-    _checkEnd(b);
+    if (!_validate(from, to, promo)) {
+      host.showToast('illegal move');
+      return false;
+    }
+    moves.add('$from$to${promo ?? ''}');
+    host.send({
+      't': 'chessMove',
+      'node': host.meId,
+      'from': from,
+      'to': to,
+      if (promo != null) 'promo': promo,
+    });
+    host.sfx('tick');
+    _checkEnd();
     host.notifyListeners();
     return true;
   }
 
   void _applyMove(Map<String, dynamic> m, String from) {
     if (winner.isNotEmpty || from != turnId) return;
-    final f = ChessBoard.sq((m['from'] as String?) ?? '');
-    final t = ChessBoard.sq((m['to'] as String?) ?? '');
-    if (f < 0 || t < 0 || f == t) return;
-    final b = ChessBoard.fromMoves(moves);
-    if (!ChessBoard.targets(b, f).contains(t)) return;
-    moves.add('${m['from']}${m['to']}');
-    _checkEnd(b);
+    final f = (m['from'] as String?) ?? '';
+    final t = (m['to'] as String?) ?? '';
+    final promo = m['promo'] as String?;
+    if (!_validate(f, t, promo)) return;
+    moves.add('$f$t${promo ?? ''}');
+    host.sfx('tick');
+    _checkEnd();
     host.notifyListeners();
   }
 
-  void _checkEnd(List<String> before) {
-    // A capture is simply the king disappearing from the board.
-    final after = ChessBoard.fromMoves(moves);
-    if (before.contains('k') && !after.contains('k')) {
-      finish('white', winnerId: white);
-      host.showToast('White captures the king - white wins!');
+  /// Shared validation: engine legality (standard) or our capture rules.
+  bool _validate(String from, String to, String? promo) {
+    if (rules == 'capture') {
+      final f = ChessBoard.sq(from);
+      final t = ChessBoard.sq(to);
+      if (f < 0 || t < 0 || f == t) return false;
+      return ChessBoard.targets(ChessBoard.fromMoves(moves), f).contains(t);
+    }
+    final f = cc.Chess.SQUARES[from];
+    final t = cc.Chess.SQUARES[to];
+    if (f == null || t == null) return false;
+    final promoType = promo == null ? null : _promoFrom(promo);
+    return _engine().generate_moves().any((m) =>
+        m.from == f &&
+        m.to == t &&
+        (promoType == null ? m.promotion == null : m.promotion == promoType));
+  }
+
+  void _checkEnd() {
+    if (rules == 'capture') {
+      final before = ChessBoard.fromMoves(moves.sublist(0, moves.length - 1));
+      final after = ChessBoard.fromMoves(moves);
+      if (before.contains('k') && !after.contains('k')) {
+        finish('white', winnerId: white);
+        host.showToast('White captures the king - white wins!');
+        return;
+      }
+      if (before.contains('K') && !after.contains('K')) {
+        finish('black', winnerId: black);
+        host.showToast('Black captures the king - black wins!');
+      }
       return;
     }
-    if (before.contains('K') && !after.contains('K')) {
-      finish('black', winnerId: black);
-      host.showToast('Black captures the king - black wins!');
+    final g = _engine();
+    if (g.in_checkmate) {
+      final moverIsWhite = g.turn == cc.Color.BLACK;
+      finish(moverIsWhite ? 'white' : 'black',
+          winnerId: moverIsWhite ? white : black);
+      host.showToast('Checkmate!');
+    } else if (g.in_draw) {
+      finish('draw');
+      host.showToast('Draw');
     }
   }
 }

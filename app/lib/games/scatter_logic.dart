@@ -3,7 +3,7 @@
 /// words count), so every client agrees without arbitration.
 library;
 
-import 'package:flutter/services.dart';
+import '../haptics.dart';
 
 import 'game_logic.dart';
 import 'turn_game.dart';
@@ -52,35 +52,35 @@ class ScatterLogic extends GameLogic {
     if (host.phase != Phase.play) return;
     if (w.length < 3) {
       host.pulseWordAttempt();
-      HapticFeedback.selectionClick();
+      Haptics.soft();
       host.showToast('Words need at least 3 letters');
       host.notifyListeners();
       return;
     }
     if (!w.startsWith(letter.toLowerCase())) {
       host.pulseWordAttempt();
-      HapticFeedback.selectionClick();
+      Haptics.soft();
       host.showToast('Must start with "$letter"');
       host.notifyListeners();
       return;
     }
     if (!host.finder.hasWord(w)) {
       host.pulseWordAttempt();
-      HapticFeedback.selectionClick();
+      Haptics.soft();
       host.showToast('"$w" is not in the dictionary');
       host.notifyListeners();
       return;
     }
     if ((submissions[host.meId] ?? const <String>[]).contains(w)) {
       host.pulseWordAttempt();
-      HapticFeedback.selectionClick();
+      Haptics.soft();
       host.showToast('You already submitted "$w"');
       host.notifyListeners();
       return;
     }
     submissions.putIfAbsent(host.meId, () => []).add(w);
     host.send({'t': 'sgSubmit', 'node': host.meId, 'name': host.myName, 'word': w});
-    HapticFeedback.selectionClick();
+    Haptics.soft();
     host.notifyListeners();
   }
 

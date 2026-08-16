@@ -194,6 +194,7 @@ class WtLogic extends TurnGameLogic<dynamic> {
     ];
     moves.add(wire);
     host.send({'t': 'wtMove', 'node': host.meId, 'tiles': wire});
+    host.sfx('tick');
     _checkEnd();
     host.notifyListeners();
     return true;

@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../audio.dart';
 import '../game.dart';
 import '../theme.dart';
 import 'lobby.dart';
@@ -179,29 +180,57 @@ class ThemeMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: 'Theme',
-      icon: const Icon(Icons.palette_outlined),
-      onPressed: () => showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        builder: (context) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'APPEARANCE',
-                  style: Theme.of(context).textTheme.labelMedium,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MuteButton(),
+        IconButton(
+          tooltip: 'Theme',
+          icon: const Icon(Icons.palette_outlined),
+          onPressed: () => showModalBottomSheet<void>(
+            context: context,
+            showDragHandle: true,
+            builder: (context) => SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'APPEARANCE',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    const AppearanceSection(),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const AppearanceSection(),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
+    );
+  }
+}
+
+/// Mute toggle for the bundled sound effects (persisted).
+class _MuteButton extends StatefulWidget {
+  @override
+  State<_MuteButton> createState() => _MuteButtonState();
+}
+
+class _MuteButtonState extends State<_MuteButton> {
+  bool _muted = Sfx.muted;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: _muted ? 'Unmute sounds' : 'Mute sounds',
+      icon: Icon(_muted ? Icons.volume_off_outlined : Icons.volume_up_outlined),
+      onPressed: () => setState(() {
+        _muted = !_muted;
+        Sfx.setMuted(_muted);
+      }),
     );
   }
 }

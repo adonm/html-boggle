@@ -120,6 +120,8 @@ try {
   }, 90_000, "players to connect");
 
   await pageA.evaluate(() => window.__boggleDebugSetMode("chess"));
+  // the starter pins the rules for the round (carried in the start msg)
+  await pageA.evaluate(() => window.__boggleDebugChessRules("capture"));
   // ready up (retry: a ready toggle can race the first gossip connect)
   for (let attempt = 0; attempt < 4; attempt++) {
     if (!(await state(pageA))?.myReady) {

@@ -168,7 +168,18 @@ class _WtPlayBodyState extends State<WtPlayBody> {
     return Semantics(
       label: 'word tile square $x $y',
       button: true,
-      child: InkWell(
+      child: DragTarget<String>(
+        onAcceptWithDetails: (d) {
+          if (game.meId != game.wt?.turnId) return;
+          if (letter != null) return; // occupied
+          final i = d.data.lastIndexOf('#');
+          final dragged = d.data.substring(0, i);
+          setState(() {
+            _pending[key] = dragged;
+            _selected = null;
+          });
+        },
+        builder: (context, _, __) => InkWell(
         onTap: () {
           if (!(game.meId == game.wt?.turnId)) return;
           if (pending != null) {
@@ -229,15 +240,17 @@ class _WtPlayBodyState extends State<WtPlayBody> {
           ),
         ),
       ),
+      ),
     );
   }
 
   Widget _wtChip(String letter, int index, bool myTurn, ThemeData theme) {
-    return InkWell(
+    final key = '$letter#$index';
+    final chip = InkWell(
       onTap: () {
         if (!myTurn) return;
         setState(() {
-          _selected = _selected == '$letter#$index' ? null : '$letter#$index';
+          _selected = _selected == key ? null : key;
         });
       },
       child: Container(
@@ -274,6 +287,16 @@ class _WtPlayBodyState extends State<WtPlayBody> {
           ],
         ),
       ),
+    );
+    return Draggable<String>(
+      data: key,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Transform.scale(scale: 1.15, child: chip),
+      ),
+      childWhenDragging: Opacity(opacity: 0.4, child: chip),
+      child: chip,
     );
   }
 
