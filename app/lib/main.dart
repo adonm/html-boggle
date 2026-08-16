@@ -25,7 +25,7 @@ void _installDebugHooks(Game game) {
   _window.setProperty(
     '__boggleDebugSubmit'.toJS,
     ((JSString word) {
-      game.debugSubmit(word.toDart);
+      game.boggle?.debugSubmit(word.toDart);
     }).toJS,
   );
   _window.setProperty(
@@ -43,7 +43,7 @@ void _installDebugHooks(Game game) {
   _window.setProperty(
     '__boggleDebugSubmitScat'.toJS,
     ((JSString word) {
-      game.submitScattergories(word.toDart);
+      game.scatter?.submit(word.toDart);
     }).toJS,
   );
   _window.setProperty(
@@ -61,25 +61,25 @@ void _installDebugHooks(Game game) {
   _window.setProperty(
     '__boggleDebugGuess'.toJS,
     ((JSString text) {
-      game.sketchGuess(text.toDart);
+      game.sketch?.guess(text.toDart);
     }).toJS,
   );
   _window.setProperty(
     '__boggleDebugChessMove'.toJS,
     ((JSString from, JSString to) {
-      game.chessTryMove(from.toDart, to.toDart);
+      game.chess?.tryMove(from.toDart, to.toDart);
     }).toJS,
   );
   _window.setProperty(
     '__boggleDebugGoMove'.toJS,
     ((JSString coord) {
-      game.goTryMove(coord.toDart);
+      game.go?.tryMove(coord.toDart);
     }).toJS,
   );
   _window.setProperty(
     '__boggleDebugGoPass'.toJS,
     ((JSAny _) {
-      game.goPassTurn();
+      game.go?.passTurn();
     }).toJS,
   );
   _window.setProperty(
@@ -87,14 +87,14 @@ void _installDebugHooks(Game game) {
     ((JSString tilesJson) {
       final raw = jsonDecode(tilesJson.toDart);
       if (raw is List) {
-        game.wtTryPlay([for (final t in raw) if (t is List) t]);
+        game.wt?.tryPlay([for (final t in raw) if (t is List) t]);
       }
     }).toJS,
   );
   _window.setProperty(
     '__boggleDebugWtPass'.toJS,
     ((JSAny _) {
-      game.wtPassTurn();
+      game.wt?.passTurn();
     }).toJS,
   );
 }

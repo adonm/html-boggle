@@ -955,12 +955,12 @@ class _PlayScreenState extends State<PlayScreen> {
               ),
             );
             final wordText = Text(
-              g.currentWord.isEmpty
+              g.boggle!.currentWord.isEmpty
                   ? 'tap tiles to spell a word'
-                  : g.currentWord.toUpperCase(),
+                  : g.boggle!.currentWord.toUpperCase(),
               textAlign: TextAlign.center,
               style: theme.textTheme.headlineSmall?.copyWith(
-                color: g.currentWord.isEmpty
+                color: g.boggle!.currentWord.isEmpty
                     ? theme.colorScheme.onSurfaceVariant
                     : theme.colorScheme.primary,
                 fontWeight: FontWeight.bold,
@@ -988,17 +988,17 @@ class _PlayScreenState extends State<PlayScreen> {
               runSpacing: 6,
               children: [
                 FilledButton.icon(
-                  onPressed: g.currentWord.length >= 3 ? g.submitWord : null,
+                  onPressed: g.boggle!.currentWord.length >= 3 ? g.boggle!.submitWord : null,
                   icon: const Icon(Icons.arrow_forward),
                   label: const Text('SUBMIT'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: g.path.isEmpty ? null : g.popTile,
+                  onPressed: g.boggle!.path.isEmpty ? null : g.boggle!.popTile,
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('UNDO'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: g.path.isEmpty ? null : g.clearPath,
+                  onPressed: g.boggle!.path.isEmpty ? null : g.boggle!.clearPath,
                   icon: const Icon(Icons.backspace_outlined),
                   label: const Text('CLEAR'),
                 ),
@@ -1107,9 +1107,9 @@ class _PlayScreenState extends State<PlayScreen> {
   }
 
   Widget _tile(ThemeData theme, Game g, int i) {
-    final order = g.path.indexOf(i);
+    final order = g.boggle!.path.indexOf(i);
     final selected = order >= 0;
-    final letter = g.board.isEmpty ? '' : g.board[i].toUpperCase();
+    final letter = g.boggle!.board.isEmpty ? '' : g.boggle!.board[i].toUpperCase();
     return Animate(
       // deal the tiles in at the start of every round
       key: ValueKey('tile$i-${g.roundEpoch}'),
@@ -1139,7 +1139,7 @@ class _PlayScreenState extends State<PlayScreen> {
           borderRadius: BorderRadius.circular(_cardRadius),
           child: InkWell(
             borderRadius: BorderRadius.circular(_cardRadius),
-            onTap: () => g.tapTile(i),
+            onTap: () => g.boggle!.tapTile(i),
             child: AnimatedScale(
               scale: selected ? 1.07 : 1.0,
               duration: 110.ms,
@@ -1268,7 +1268,7 @@ class _ScatterPlayBodyState extends State<ScatterPlayBody> {
   }
 
   void _submit() {
-    game.submitScattergories(_input.text);
+    game.scatter?.submit(_input.text);
     _input.clear();
   }
 
@@ -1369,7 +1369,7 @@ class _ScatterPlayBodyState extends State<ScatterPlayBody> {
                           child: Column(
                             children: [
                               Text(
-                                g.sgLetter,
+                                g.scatter!.letter,
                                 style: theme.textTheme.displayLarge?.copyWith(
                                   fontSize: 88,
                                   color: theme.colorScheme.primary,
@@ -1430,7 +1430,7 @@ class _ScatterPlayBodyState extends State<ScatterPlayBody> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      Text('${g.sgWords[p.id]?.length ?? 0} words'),
+                                      Text('${g.scatter!.submissions[p.id]?.length ?? 0} words'),
                                     ],
                                   ),
                                 ),
@@ -1439,7 +1439,7 @@ class _ScatterPlayBodyState extends State<ScatterPlayBody> {
                                 spacing: 6,
                                 runSpacing: 6,
                                 children: [
-                                  for (final w in (g.sgWords[g.meId] ?? const <String>[]).reversed)
+                                  for (final w in (g.scatter!.submissions[g.meId] ?? const <String>[]).reversed)
                                     Chip(
                                       label: Text(w.toUpperCase()),
                                       visualDensity: VisualDensity.compact,
@@ -1474,12 +1474,12 @@ class ScatterResultsBody extends StatelessWidget {
     final theme = Theme.of(context);
     final g = game;
     final ranked = [...g.players]
-      ..sort((a, b) => g.sgScore(b.id).compareTo(g.sgScore(a.id)));
+      ..sort((a, b) => g.scatter!.scoreOf(b.id).compareTo(g.scatter!.scoreOf(a.id)));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'LETTER ${g.sgLetter} · ROUND ${g.round} OVER',
+          'LETTER ${g.scatter!.letter} · ROUND ${g.round} OVER',
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineMedium?.copyWith(
             color: theme.colorScheme.primary,
@@ -1509,7 +1509,7 @@ class ScatterResultsBody extends StatelessWidget {
                                 : null,
                           ),
                         ),
-                        Text('${g.sgScore(p.id)} pts'),
+                        Text('${g.scatter!.scoreOf(p.id)} pts'),
                       ],
                     ),
                   ),
@@ -1518,14 +1518,14 @@ class ScatterResultsBody extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final w in g.sgAllWords)
+                    for (final w in g.scatter!.allWords)
                       Chip(
                         visualDensity: VisualDensity.compact,
                         label: Text(
-                          g.sgIsDupe(w) ? '${w.toUpperCase()} ✗' : '${w.toUpperCase()} ✓',
+                          g.scatter!.isDupe(w) ? '${w.toUpperCase()} ✗' : '${w.toUpperCase()} ✓',
                           style: TextStyle(
-                            decoration: g.sgIsDupe(w) ? TextDecoration.lineThrough : null,
-                            color: g.sgIsDupe(w)
+                            decoration: g.scatter!.isDupe(w) ? TextDecoration.lineThrough : null,
+                            color: g.scatter!.isDupe(w)
                                 ? theme.colorScheme.error
                                 : BoggleColors.youGreen,
                           ),
@@ -1764,11 +1764,11 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
 
   void _onGame() => setState(() {});
 
-  bool get _isDrawer => game.meId == game.sketchDrawer;
+  bool get _isDrawer => game.meId == game.sketch?.drawer;
 
   void _sendBuf(double color, double width) {
     if (_buf.isEmpty || _strokeId == null) return;
-    game.sketchDraw(
+    game.sketch?.draw(
       color,
       width,
       [for (final p in _buf) p.dx, for (final p in _buf) p.dy],
@@ -1823,8 +1823,8 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Text(
             _isDrawer
-                ? 'DRAW: ${g.sketchWord.toUpperCase()}'
-                : 'ANSWER: ${g.sketchWord.toUpperCase()}',
+                ? 'DRAW: ${g.sketch!.word.toUpperCase()}'
+                : 'ANSWER: ${g.sketch!.word.toUpperCase()}',
             textAlign: TextAlign.center,
             style: theme.textTheme.titleLarge?.copyWith(
               color: _isDrawer ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
@@ -1858,7 +1858,7 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                           onPanEnd: _isDrawer ? (_) => _endStroke() : null,
                           child: CustomPaint(
                             size: size,
-                            painter: SketchPainter(strokes: g.sketchStrokes),
+                            painter: SketchPainter(strokes: g.sketch!.strokes),
                             child: const SizedBox.expand(),
                           ),
                         ),
@@ -1902,7 +1902,7 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
                     const SizedBox(width: 12),
                     OutlinedButton.icon(
                       onPressed: () {
-                        game.sketchClearCanvas();
+                        game.sketch?.clearCanvas();
                         setState(() {});
                       },
                       icon: const Icon(Icons.cleaning_services, size: 18),
@@ -1937,7 +1937,7 @@ class _SketchPlayBodyState extends State<SketchPlayBody> {
 
   void _submitGuess(String text) {
     if (text.trim().isEmpty) return;
-    game.sketchGuess(text);
+    game.sketch?.guess(text);
     _guess.clear();
   }
 }
@@ -1992,9 +1992,9 @@ class SketchResultsBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Text(
-      game.sketchSolved
-          ? 'THE WORD WAS "${game.sketchWord.toUpperCase()}"'
-          : 'TIME IS UP - THE WORD WAS "${game.sketchWord.toUpperCase()}"',
+      game.sketch?.solved == true
+          ? 'THE WORD WAS "${game.sketch?.word.toUpperCase()}"'
+          : 'TIME IS UP - THE WORD WAS "${game.sketch?.word.toUpperCase()}"',
       textAlign: TextAlign.center,
       style: theme.textTheme.headlineSmall?.copyWith(
         color: theme.colorScheme.primary,
@@ -2039,17 +2039,17 @@ class _ChessPlayBodyState extends State<ChessPlayBody> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final g = game;
-    final board = ChessBoard.fromMoves(g.chessMoves);
-    final isPlayer = g.meId == g.chessWhite || g.meId == g.chessBlack;
-    final myTurn = g.meId == g.chessTurnId;
+    final board = ChessBoard.fromMoves(g.chess!.moves);
+    final isPlayer = g.meId == g.chess!.white || g.meId == g.chess!.black;
+    final myTurn = g.meId == g.chess!.turnId;
     final targets = _selected == null
         ? const <int>[]
         : ChessBoard.targets(board, _selected!);
     String nameOf(String id) =>
         g.players.where((p) => p.id == id).firstOrNull?.name ?? '';
-    final whiteName = nameOf(g.chessWhite).isEmpty ? 'White' : nameOf(g.chessWhite);
-    final blackName = nameOf(g.chessBlack).isEmpty ? 'Black' : nameOf(g.chessBlack);
-    final turnName = g.chessWhiteTurn ? whiteName : blackName;
+    final whiteName = nameOf(g.chess!.white).isEmpty ? 'White' : nameOf(g.chess!.white);
+    final blackName = nameOf(g.chess!.black).isEmpty ? 'Black' : nameOf(g.chess!.black);
+    final turnName = g.chess!.whiteTurn ? whiteName : blackName;
     return Column(
       children: [
         Padding(
@@ -2121,10 +2121,10 @@ class _ChessPlayBodyState extends State<ChessPlayBody> {
       button: true,
       child: InkWell(
         onTap: () {
-          if (game.meId != game.chessTurnId) return;
+          if (game.meId != game.chess?.turnId) return;
           if (_selected == null) {
             if (piece != '.' &&
-                ChessBoard.isWhite(piece) == game.chessWhiteTurn) {
+                ChessBoard.isWhite(piece) == game.chess?.whiteTurn) {
               setState(() => _selected = idx);
             }
             return;
@@ -2133,11 +2133,11 @@ class _ChessPlayBodyState extends State<ChessPlayBody> {
             final from = ChessBoard.sqName(_selected!);
             final to = ChessBoard.sqName(idx);
             setState(() => _selected = null);
-            game.chessTryMove(from, to);
+            game.chess?.tryMove(from, to);
             return;
           }
           if (piece != '.' &&
-              ChessBoard.isWhite(piece) == game.chessWhiteTurn &&
+              ChessBoard.isWhite(piece) == game.chess?.whiteTurn &&
               idx != _selected) {
             setState(() => _selected = idx);
             return;
@@ -2203,9 +2203,9 @@ class ChessResultsBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final winner = game.chessWinner;
+    final winner = game.chess?.winner;
     return Text(
-      winner.isEmpty
+      (winner ?? '').isEmpty
           ? 'GAME ABANDONED'
           : winner == 'white'
               ? 'WHITE WINS - KING CAPTURED!'
@@ -2322,7 +2322,7 @@ class _GoPlayBodyState extends State<GoPlayBody> {
         width: sq,
         height: sq,
         child: InkWell(
-          onTap: myTurn ? () => game.goTryMove(coord) : null,
+          onTap: myTurn ? () => game.go?.tryMove(coord) : null,
           child: const SizedBox.expand(),
         ),
       ),
@@ -2333,19 +2333,19 @@ class _GoPlayBodyState extends State<GoPlayBody> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final g = game;
-    final r = GoGame.replay(g.goMoves);
-    final myTurn = g.meId == g.goTurnId;
-    final isPlayer = g.meId == g.goBlack || g.meId == g.goWhite;
-    final lastIdx = g.goMoves.isNotEmpty &&
-            g.goMoves.last != 'pass' &&
-            g.goMoves.last != 'resign'
-        ? GoGame.sq(g.goMoves.last)
+    final r = GoGame.replay(g.go!.moves);
+    final myTurn = g.meId == g.go!.turnId;
+    final isPlayer = g.meId == g.go!.black || g.meId == g.go!.white;
+    final lastIdx = g.go!.moves.isNotEmpty &&
+            g.go!.moves.last != 'pass' &&
+            g.go!.moves.last != 'resign'
+        ? GoGame.sq(g.go!.moves.last)
         : -1;
     String nameOf(String id) =>
         g.players.where((p) => p.id == id).firstOrNull?.name ?? id;
-    final turnName = g.goBlackTurn
-        ? (nameOf(g.goBlack).isEmpty ? 'Black' : nameOf(g.goBlack))
-        : (nameOf(g.goWhite).isEmpty ? 'White' : nameOf(g.goWhite));
+    final turnName = g.go!.blackTurn
+        ? (nameOf(g.go!.black).isEmpty ? 'Black' : nameOf(g.go!.black))
+        : (nameOf(g.go!.white).isEmpty ? 'White' : nameOf(g.go!.white));
     final blackCount = r.board.where((c) => c == 'B').length;
     final whiteCount = r.board.where((c) => c == 'W').length;
     return Column(
@@ -2420,12 +2420,12 @@ class _GoPlayBodyState extends State<GoPlayBody> {
               const SizedBox(width: 16),
               if (isPlayer) ...[
                 FilledButton.tonal(
-                  onPressed: myTurn ? g.goPassTurn : null,
+                  onPressed: myTurn ? g.go!.passTurn : null,
                   child: const Text('PASS'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
-                  onPressed: g.goResign,
+                  onPressed: g.go!.resign,
                   child: const Text('RESIGN'),
                 ),
               ],
@@ -2520,8 +2520,8 @@ class GoResultsBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final g = game;
-    final s = GoGame.score(GoGame.replay(g.goMoves).board);
-    final text = switch (g.goWinner) {
+    final s = GoGame.score(GoGame.replay(g.go!.moves).board);
+    final text = switch (g.go!.winner) {
       'black' => 'BLACK WINS',
       'white' => 'WHITE WINS',
       'draw' => 'DRAW',
@@ -2569,7 +2569,7 @@ class _WtPlayBodyState extends State<WtPlayBody> {
   @override
   void initState() {
     super.initState();
-    _seenMoves = game.wtMoves.length;
+    _seenMoves = game.wt?.moves.length ?? 0;
     game.addListener(_onGame);
   }
 
@@ -2583,8 +2583,8 @@ class _WtPlayBodyState extends State<WtPlayBody> {
     setState(() {
       // only a real move (someone played/passed) resets pending placements;
       // periodic hellos/state syncs must not wipe a placement in progress
-      if (game.wtMoves.length != _seenMoves) {
-        _seenMoves = game.wtMoves.length;
+      if ((game.wt?.moves.length ?? 0) != _seenMoves) {
+        _seenMoves = game.wt?.moves.length ?? 0;
         _pending.clear();
         _selected = null;
       }
@@ -2595,12 +2595,12 @@ class _WtPlayBodyState extends State<WtPlayBody> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final g = game;
-    final board = g.wtBoard;
-    final rack = g.wtMyRack;
-    final myTurn = g.meId == g.wtTurnId;
-    final isPlayer = g.wtSeats.contains(g.meId);
+    final board = g.wt!.board;
+    final rack = g.wt!.myRack;
+    final myTurn = g.meId == g.wt!.turnId;
+    final isPlayer = g.wt!.seats.contains(g.meId);
     final turnName = g.players
-        .where((p) => p.id == g.wtTurnId)
+        .where((p) => p.id == g.wt!.turnId)
         .firstOrNull
         ?.name;
     return Column(
@@ -2649,8 +2649,8 @@ class _WtPlayBodyState extends State<WtPlayBody> {
           padding: const EdgeInsets.all(8),
           child: Text(
             'SCORES: ${[
-              for (var i = 0; i < g.wtSeats.length; i++)
-                '${g.players.where((p) => p.id == g.wtSeats[i]).firstOrNull?.name ?? '?'} ${g.wtScoreOf(i)}',
+              for (var i = 0; i < g.wt!.seats.length; i++)
+                '${g.players.where((p) => p.id == g.wt!.seats[i]).firstOrNull?.name ?? '?'} ${g.wt!.scoreOf(i)}',
             ].join(' · ')}',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall,
@@ -2691,7 +2691,7 @@ class _WtPlayBodyState extends State<WtPlayBody> {
                 ),
                 const SizedBox(width: 8),
                 FilledButton.tonal(
-                  onPressed: myTurn ? g.wtPassTurn : null,
+                  onPressed: myTurn ? g.wt!.passTurn : null,
                   child: const Text('PASS'),
                 ),
               ],
@@ -2713,7 +2713,7 @@ class _WtPlayBodyState extends State<WtPlayBody> {
       button: true,
       child: InkWell(
         onTap: () {
-          if (!(game.meId == game.wtTurnId)) return;
+          if (!(game.meId == game.wt?.turnId)) return;
           if (pending != null) {
             setState(() {
               _pending.remove(key);
@@ -2832,7 +2832,7 @@ class _WtPlayBodyState extends State<WtPlayBody> {
         if (a[0] != b[0]) return (a[0] as int).compareTo(b[0] as int);
         return (a[1] as int).compareTo(b[1] as int);
       });
-    if (game.wtTryPlay(tiles)) {
+    if (game.wt?.tryPlay(tiles) == true) {
       setState(() {
         _pending.clear();
         _selected = null;
@@ -2852,13 +2852,13 @@ class WtResultsBanner extends StatelessWidget {
     final g = game;
     String nameOf(String id) =>
         g.players.where((p) => p.id == id).firstOrNull?.name ?? id;
-    final winnerName = g.wtWinner == 'draw' || g.wtWinner.isEmpty
+    final winnerName = g.wt!.winner == 'draw' || g.wt!.winner.isEmpty
         ? 'Draw'
-        : nameOf(g.wtWinner);
+        : nameOf(g.wt!.winner);
     return Column(
       children: [
         Text(
-          g.wtWinner == 'draw' ? 'DRAW' : '$winnerName WINS',
+          g.wt!.winner == 'draw' ? 'DRAW' : '$winnerName WINS',
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall?.copyWith(
             color: theme.colorScheme.primary,
@@ -2868,8 +2868,8 @@ class WtResultsBanner extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           [
-            for (var i = 0; i < g.wtSeats.length; i++)
-              '${nameOf(g.wtSeats[i])} ${g.wtScoreOf(i)}',
+            for (var i = 0; i < g.wt!.seats.length; i++)
+              '${nameOf(g.wt!.seats[i])} ${g.wt!.scoreOf(i)}',
           ].join(' · '),
           style: theme.textTheme.titleMedium,
         ),
